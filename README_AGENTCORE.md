@@ -139,6 +139,8 @@ A team agent can ask its members' agents for status updates. A department agent 
 
 **This is the future**: not a chatbot, but an organizational nervous system. Not OpenClaw-the-tool, but OpenClaw-the-platform. This is what enterprise OpenClaw SaaS looks like. This is what an OpenClaw MSP (Managed Service Provider) delivers.
 
+![OpenClaw Multi-Tenant Admin Console](images/20260305-214028.jpeg)
+
 ---
 
 ## How It Works Today

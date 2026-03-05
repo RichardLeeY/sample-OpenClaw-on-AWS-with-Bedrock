@@ -44,6 +44,8 @@ Deploy in 8 minutes. Access from your phone.
 
 ### After Deployment
 
+![CloudFormation Outputs](images/20260305-215111.png)
+
 ```bash
 # 1. Install SSM Session Manager Plugin (one-time)
 #    https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html
