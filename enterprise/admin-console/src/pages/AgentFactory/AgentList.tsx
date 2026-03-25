@@ -17,6 +17,7 @@ export default function AgentList() {
   const [newName, setNewName] = useState('');
   const [newPos, setNewPos] = useState('');
   const [newEmp, setNewEmp] = useState('');
+  const [newChannels, setNewChannels] = useState<string[]>(['slack']);
   const [filterText, setFilterText] = useState('');
   const [filterDept, setFilterDept] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -173,9 +174,22 @@ export default function AgentList() {
         {createStep === 0 && (
           <div className="space-y-4">
             <h4 className="text-sm font-medium text-text-primary">Step 1: Basic Configuration</h4>
-            <Input label="Agent Name" value={newName} onChange={setNewName} placeholder="SA Agent - Zhang San" />
-            <Select label="Position Template" value={newPos} onChange={setNewPos} options={posOptions} placeholder="Select position" description="Inherits SOUL, Skills, and tool permissions" />
-            <Select label="Bind Employee" value={newEmp} onChange={setNewEmp} options={empOptions} placeholder="Select employee (only showing unbound)" />
+            <Select label="Position Template" value={newPos} onChange={v => {
+              setNewPos(v);
+              // Auto-generate name when position changes
+              const pos = POSITIONS.find(p => p.id === v);
+              const emp = EMPLOYEES.find(e => e.id === newEmp);
+              if (pos && emp) setNewName(`${pos.name} Agent - ${emp.name}`);
+              else if (pos) setNewName(`${pos.name} Agent`);
+            }} options={posOptions} placeholder="Select position" description="Inherits SOUL, Skills, and tool permissions" />
+            <Select label="Bind Employee" value={newEmp} onChange={v => {
+              setNewEmp(v);
+              // Auto-generate name when employee changes
+              const pos = POSITIONS.find(p => p.id === newPos);
+              const emp = EMPLOYEES.find(e => e.id === v);
+              if (pos && emp) setNewName(`${pos.name} Agent - ${emp.name}`);
+            }} options={empOptions} placeholder="Select employee (only showing unbound)" />
+            <Input label="Agent Name" value={newName} onChange={setNewName} placeholder="Auto-generated from position + employee" description="Auto-filled — edit if you want a custom name" />
           </div>
         )}
         {createStep === 1 && (

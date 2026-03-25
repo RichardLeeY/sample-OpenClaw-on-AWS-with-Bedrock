@@ -19,6 +19,8 @@ export default function Positions() {
   const [newDept, setNewDept] = useState('');
   const [newSoul, setNewSoul] = useState('');
   const [newChannel, setNewChannel] = useState('slack');
+  const [newTools, setNewTools] = useState<string[]>(['web_search']);
+  const [newSkills, setNewSkills] = useState<string[]>([]);
 
   const deptOptions = DEPARTMENTS.filter(d => !d.parentId).map(d => ({ label: d.name, value: d.id }));
   const totalMembers = POSITIONS.reduce((s, p) => s + p.memberCount, 0);
@@ -179,15 +181,15 @@ export default function Positions() {
               departmentId: newDept,
               departmentName: dept?.name || '',
               soulTemplate: newSoul,
-              defaultSkills: [],
+              defaultSkills: newSkills,
               defaultKnowledge: [],
-              toolAllowlist: ['web_search'],
+              toolAllowlist: newTools,
               defaultChannel: newChannel as any,
               memberCount: 0,
               createdAt: new Date().toISOString(),
             });
           }
-          setShowCreate(false); setNewName(''); setNewDept(''); setNewSoul(''); setNewChannel('slack');
+          setShowCreate(false); setNewName(''); setNewDept(''); setNewSoul(''); setNewChannel('slack'); setNewTools(['web_search']); setNewSkills([]);
         }}>Create</Button></div>}
       >
         <div className="space-y-4">
@@ -198,7 +200,31 @@ export default function Positions() {
             { label: 'WhatsApp', value: 'whatsapp' }, { label: 'Discord', value: 'discord' },
             { label: 'Feishu', value: 'feishu' }, { label: 'DingTalk', value: 'dingtalk' },
           ]} />
-          <Textarea label="SOUL Template" value={newSoul} onChange={setNewSoul} rows={8} placeholder="You are a ... specializing in ..." description="Define the default persona and behavior rules for agents in this position" />
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">Tool Permissions</label>
+            <div className="flex flex-wrap gap-2">
+              {['web_search', 'browser', 'file', 'file_write', 'shell', 'code_execution'].map(tool => (
+                <button key={tool} onClick={() => setNewTools(prev => prev.includes(tool) ? prev.filter(t => t !== tool) : [...prev, tool])}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${newTools.includes(tool) ? 'bg-primary/10 border-primary/40 text-primary-light' : 'border-dark-border text-text-muted hover:border-text-muted'}`}>
+                  {tool}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-text-muted mt-1">Tools this position's agents are allowed to use (Plan A enforcement)</p>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">Default Skills</label>
+            <div className="flex flex-wrap gap-2">
+              {['web_search', 'browser', 'excel-gen', 'email-send', 'calendar-check', 'crm-query', 'google-docs', 'notion-sync', 'sap-connector'].map(skill => (
+                <button key={skill} onClick={() => setNewSkills(prev => prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill])}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${newSkills.includes(skill) ? 'bg-success/10 border-success/40 text-success' : 'border-dark-border text-text-muted hover:border-text-muted'}`}>
+                  {skill}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-text-muted mt-1">Skills auto-installed for agents in this position</p>
+          </div>
+          <Textarea label="SOUL Template" value={newSoul} onChange={setNewSoul} rows={6} placeholder="You are a ... specializing in ..." description="Define the default persona and behavior rules for agents in this position" />
         </div>
       </Modal>
     </div>

@@ -57,6 +57,7 @@ export default function Employees() {
   const [newName, setNewName] = useState('');
   const [newNo, setNewNo] = useState('');
   const [newPos, setNewPos] = useState('');
+  const [newChannels, setNewChannels] = useState<string[]>(['slack']);
 
   const posOptions = POSITIONS.map(p => ({ label: `${p.name} (${p.departmentName})`, value: p.id }));
   const departments = useMemo(() => {
@@ -290,11 +291,20 @@ export default function Employees() {
                       <p className="text-[10px] text-text-muted">SOUL Ver</p>
                     </div>
                   </div>
+                  <div className="flex gap-2 mt-3">
+                    <Button variant="default" size="sm" onClick={() => { setSelected(null); navigate(`/agents/${agent.id}`); }}>View Agent</Button>
+                    <Button variant="default" size="sm" onClick={() => { setSelected(null); navigate(`/agents/${agent.id}/soul`); }}>Edit SOUL</Button>
+                  </div>
                 </div>
               ) : (
-                <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-4 text-center">
-                  <p className="text-sm text-amber-400 mb-1">No agent bound</p>
-                  <p className="text-xs text-text-muted">Assign to a position to auto-provision, or use Bulk Provision from Positions page.</p>
+                <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-4">
+                  <p className="text-sm text-amber-400 mb-2">No agent bound</p>
+                  <p className="text-xs text-text-muted mb-3">This employee doesn't have a personal AI agent yet. Create one to enable AI-assisted work.</p>
+                  <Button variant="primary" size="sm" onClick={() => {
+                    setSelected(null);
+                    navigate('/agents');
+                    // Pre-fill would require state sharing; navigate to Agent Factory instead
+                  }}><Bot size={14} /> Create Agent for {selected.name.split(' ')[0]}</Button>
                 </div>
               )}
 
@@ -356,19 +366,31 @@ export default function Employees() {
               name: newName, employeeNo: newNo || `EMP-${Date.now()}`,
               positionId: newPos, positionName: pos?.name || '',
               departmentId: pos?.departmentId || '', departmentName: pos?.departmentName || '',
-              channels: [], agentId: null, agentStatus: 'idle',
+              channels: newChannels, agentId: null, agentStatus: 'idle',
             } as any);
           }
-          setShowCreate(false); setNewName(''); setNewNo(''); setNewPos('');
-        }}>Add</Button></div>}
+          setShowCreate(false); setNewName(''); setNewNo(''); setNewPos(''); setNewChannels(['slack']);
+        }}>Add & Auto-Provision</Button></div>}
       >
         <div className="space-y-4">
           <Input label="Name" value={newName} onChange={setNewName} />
           <Input label="Employee No" value={newNo} onChange={setNewNo} placeholder="EMP-022" />
           <Select label="Position" value={newPos} onChange={setNewPos} options={posOptions} placeholder="Select position" />
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">IM Channels</label>
+            <div className="flex flex-wrap gap-2">
+              {['slack', 'discord', 'telegram', 'whatsapp', 'feishu'].map(ch => (
+                <button key={ch} onClick={() => setNewChannels(prev => prev.includes(ch) ? prev.filter(c => c !== ch) : [...prev, ch])}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${newChannels.includes(ch) ? 'bg-primary/10 border-primary/40 text-primary-light' : 'border-dark-border text-text-muted hover:border-text-muted'}`}>
+                  {CHANNEL_LABELS[ch as ChannelType]}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-text-muted mt-1">Select which IM platforms this employee will use</p>
+          </div>
           <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 text-xs text-text-secondary">
             <Zap size={14} className="inline mr-1 text-primary-light" />
-            A personal 1:1 agent will be auto-provisioned based on the position's SOUL template, default skills, and channel settings.
+            A personal 1:1 agent will be auto-provisioned based on the position's SOUL template, default skills, and channel settings. The employee can start chatting immediately after IM pairing.
           </div>
         </div>
       </Modal>

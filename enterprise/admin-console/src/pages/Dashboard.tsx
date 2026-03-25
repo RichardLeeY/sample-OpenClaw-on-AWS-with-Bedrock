@@ -201,8 +201,8 @@ export default function Dashboard() {
           <Card>
             <h3 className="mb-4 text-lg font-semibold text-text-primary">Quick Actions</h3>
             <div className="grid grid-cols-2 gap-2">
-              <Button variant="primary" className="w-full" onClick={() => navigate('/org/positions')}>
-                <Building2 size={16} /> New Position
+              <Button variant="primary" className="w-full" onClick={() => navigate('/org/employees')}>
+                <Users size={16} /> Add Employee
               </Button>
               <Button variant="default" className="w-full" onClick={() => navigate('/agents')}>
                 <Bot size={16} /> New Agent
@@ -210,8 +210,8 @@ export default function Dashboard() {
               <Button variant="default" className="w-full" onClick={() => navigate('/bindings')}>
                 <Link2 size={16} /> Bind Employee
               </Button>
-              <Button variant="default" className="w-full" onClick={() => navigate('/monitor')}>
-                <Activity size={16} /> Monitor
+              <Button variant="default" className="w-full" onClick={() => navigate('/playground')}>
+                <MessageSquare size={16} /> Playground
               </Button>
             </div>
           </Card>

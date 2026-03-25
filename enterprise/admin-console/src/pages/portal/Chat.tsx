@@ -131,9 +131,11 @@ export default function PortalChat() {
                 <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
               )}
               <p className={`text-[10px] mt-1.5 ${msg.role === 'user' ? 'text-white/60' : 'text-text-muted'}`}>
+                {msg.role === 'user' && '✓ '}
                 {new Date(msg.timestamp).toLocaleTimeString()}
                 {msg.source === 'agentcore' && ' · AgentCore'}
                 {msg.source === 'fallback' && ' · offline'}
+                {msg.source === 'warmup' && ' · warming up'}
                 {msg.model && ` · ${msg.model.split('/').pop()?.split(':')[0] || ''}`}
               </p>
             </div>
@@ -176,9 +178,14 @@ export default function PortalChat() {
             <Send size={18} />
           </button>
         </div>
-        <p className="text-[10px] text-text-muted mt-2 text-center">
-          Messages are stored locally. Your agent runs on AWS Bedrock via AgentCore.
-        </p>
+        <div className="flex items-center justify-between mt-2">
+          <p className="text-[10px] text-text-muted">
+            Press Enter to send · Messages stored locally
+          </p>
+          <p className="text-[10px] text-text-muted">
+            Powered by AWS Bedrock via AgentCore
+          </p>
+        </div>
       </div>
     </div>
   );

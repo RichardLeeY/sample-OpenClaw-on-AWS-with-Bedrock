@@ -82,7 +82,7 @@ export default function AgentDetail() {
             <Button variant="default" onClick={() => navigate('/agents')}><ArrowLeft size={16} /> Back</Button>
             <Button variant="default" onClick={() => navigate(`/agents/${agent.id}/soul`)}><Edit3 size={16} /> Edit SOUL</Button>
             <Button variant="default" onClick={() => navigate('/playground')}><Play size={16} /> Test</Button>
-            <Button variant="primary"><Settings size={16} /> Configure</Button>
+            <Button variant="default" onClick={() => navigate('/workspace')}><Settings size={16} /> Workspace</Button>
           </div>
         }
       />

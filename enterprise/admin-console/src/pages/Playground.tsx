@@ -1,11 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Send, User, Bot, Shield, Eye, Terminal, Loader } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Card, Badge, Button, PageHeader, Select } from '../components/ui';
-import { usePlaygroundProfiles } from '../hooks/useApi';
+import { usePlaygroundProfiles, useAgents, useEmployees, usePositions } from '../hooks/useApi';
 import { api } from '../api/client';
-
-interface ChatMessage { role: 'user' | 'assistant' | 'system'; content: string; timestamp: string; }
 
 const STORAGE_KEY = 'openclaw_playground_chat';
 
@@ -22,38 +20,69 @@ function saveMessages(tenantId: string, messages: ChatMessage[]) {
 
 interface ChatMessage { role: 'user' | 'assistant' | 'system'; content: string; timestamp: string; }
 
-const TENANT_OPTIONS = [
-  { label: 'Sarah Chen — Intern (WhatsApp)', value: 'wa__intern_sarah' },
-  { label: 'Alex Wang — Senior Engineer (Telegram)', value: 'tg__engineer_alex' },
-  { label: 'Jordan Lee — IT Admin (Discord)', value: 'dc__admin_jordan' },
-  { label: 'Carol Zhang — Finance Analyst (Slack)', value: 'sl__finance_carol' },
-];
-
 export default function Playground() {
   const { data: profiles } = usePlaygroundProfiles();
-  const [tenantId, setTenantId] = useState(TENANT_OPTIONS[0].value);
-  const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages(TENANT_OPTIONS[0].value));
+  const { data: agents = [] } = useAgents();
+  const { data: employees = [] } = useEmployees();
+  const { data: positions = [] } = usePositions();
+
+  // Build tenant options from real employees + agents
+  const tenantOptions = useMemo(() => {
+    const channelShort: Record<string, string> = { whatsapp: 'wa', telegram: 'tg', discord: 'dc', slack: 'sl', feishu: 'fs' };
+    const opts = employees
+      .filter(e => e.agentId)
+      .map(e => {
+        const agent = agents.find(a => a.id === e.agentId);
+        const ch = e.channels?.[0] || 'slack';
+        const chKey = channelShort[ch] || ch.slice(0, 2);
+        return {
+          label: `${e.name} — ${e.positionName} (${ch})`,
+          value: `${chKey}__${e.id}`,
+        };
+      });
+    // Fallback if no employees loaded yet
+    if (opts.length === 0) {
+      return [
+        { label: 'Carol Zhang — Finance Analyst (Slack)', value: 'sl__emp-carol' },
+        { label: 'Wang Wu — SDE (Telegram)', value: 'tg__emp-w5' },
+        { label: 'Zhang San — SA (Discord)', value: 'dc__emp-z3' },
+      ];
+    }
+    return opts;
+  }, [employees, agents]);
+
+  const [tenantId, setTenantId] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [lastPlanE, setLastPlanE] = useState('No messages processed yet');
   const [mode, setMode] = useState<'simulate' | 'live'>('simulate');
   const [sending, setSending] = useState(false);
 
+  // Initialize tenantId when options load
+  useEffect(() => {
+    if (tenantOptions.length > 0 && !tenantId) {
+      setTenantId(tenantOptions[0].value);
+    }
+  }, [tenantOptions, tenantId]);
+
   const profile = profiles?.[tenantId] || { role: 'loading', tools: [], planA: '', planE: '' };
   const profileLoaded = !!profiles?.[tenantId];
 
   // Persist messages
-  useEffect(() => { saveMessages(tenantId, messages); }, [messages, tenantId]);
+  useEffect(() => { if (tenantId) saveMessages(tenantId, messages); }, [messages, tenantId]);
 
   useEffect(() => {
-    if (!profileLoaded) return;
+    if (!tenantId) return;
     const saved = loadMessages(tenantId);
     if (saved.length > 0) {
       setMessages(saved);
     } else {
-      setMessages([{ role: 'system', content: `🔒 Tenant context loaded: ${profile.role} role, ${profile.tools.length} tools`, timestamp: '' }]);
+      const p = profiles?.[tenantId];
+      const label = tenantOptions.find(o => o.value === tenantId)?.label || tenantId;
+      setMessages([{ role: 'system', content: `🔒 Tenant context loaded: ${label} — ${p?.role || 'unknown'} role, ${p?.tools?.length || 0} tools`, timestamp: '' }]);
     }
     setLastPlanE('No messages processed yet');
-  }, [tenantId, profileLoaded]);
+  }, [tenantId, profiles]);
 
   const handleSend = async () => {
     if (!inputValue.trim() || sending) return;
@@ -95,7 +124,7 @@ export default function Playground() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <div className="mb-4 space-y-3">
-            <Select label="Tenant Context" value={tenantId} onChange={v => setTenantId(v)} options={TENANT_OPTIONS} />
+            <Select label="Tenant Context" value={tenantId} onChange={v => setTenantId(v)} options={tenantOptions} />
             <div className="flex items-center gap-3">
               <span className="text-xs text-text-muted">Mode:</span>
               <button onClick={() => setMode('simulate')} className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${mode === 'simulate' ? 'bg-primary/10 text-primary-light' : 'text-text-muted hover:bg-dark-hover'}`}>Simulate</button>
