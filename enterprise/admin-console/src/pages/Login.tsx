@@ -6,11 +6,12 @@ import ClawForgeLogo from '../components/ClawForgeLogo';
 
 const DEMO_ACCOUNTS = [
   { id: 'emp-z3', name: 'Zhang San', role: 'Admin', dept: 'Engineering', desc: 'Full platform access' },
+  { id: 'emp-jiade', name: 'JiaDe Wang', role: 'Admin', dept: 'Engineering', desc: 'Full admin + SA Agent with memory ✨' },
   { id: 'emp-lin', name: 'Lin Xiaoyu', role: 'Manager', dept: 'Product', desc: 'Product department view' },
-  { id: 'emp-mike', name: 'Mike Johnson', role: 'Manager', dept: 'Sales', desc: 'Sales department view' },
-  { id: 'emp-w5', name: 'Wang Wu', role: 'Employee', dept: 'Engineering', desc: 'Portal: chat with SDE Agent' },
-  { id: 'emp-carol', name: 'Carol Zhang', role: 'Employee', dept: 'Finance', desc: 'Portal: chat with Finance Agent' },
-  { id: 'emp-emma', name: 'Emma Chen', role: 'Employee', dept: 'Customer Success', desc: 'Portal: chat with CSM Agent' },
+  { id: 'emp-peter', name: 'Peter Wu', role: 'Manager', dept: 'Engineering', desc: 'Executive Agent with memory ✨' },
+  { id: 'emp-david', name: 'David Park', role: 'Employee', dept: 'Finance', desc: 'Finance Agent with memory ✨' },
+  { id: 'emp-w5', name: 'Wang Wu', role: 'Employee', dept: 'Engineering', desc: 'Portal: SDE Agent (full dev tools)' },
+  { id: 'emp-carol', name: 'Carol Zhang', role: 'Employee', dept: 'Finance', desc: 'Portal: Finance Agent' },
 ];
 
 export default function Login() {
