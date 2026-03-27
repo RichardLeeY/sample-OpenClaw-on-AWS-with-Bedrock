@@ -169,6 +169,7 @@ function extractUserMessage(body) {
         else if (/^\d{7,12}$/.test(meta.sender_id)) channel = 'telegram';
         else if (/^\d{17,19}$/.test(meta.sender_id)) channel = 'discord';
         else if (/^\+\d{7,15}$/.test(meta.sender_id)) channel = 'whatsapp';
+        else if (/^ou_[a-zA-Z0-9]+$/.test(meta.sender_id)) channel = 'feishu'; // Feishu Open User ID
       }
     }
   } catch (e) { /* JSON parse failed, fall through to regex */ }
