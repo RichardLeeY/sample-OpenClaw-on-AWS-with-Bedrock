@@ -186,6 +186,8 @@ function ChannelWizard({ channel, onDone, onCancel }: { channel: Channel; onDone
 export default function BindIM() {
   const [selected, setSelected] = useState<Channel | null>(null);
   const [connected, setConnected] = useState<string[]>([]);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState<string | null>(null);
 
   // Check existing connections
   useEffect(() => {
@@ -197,6 +199,16 @@ export default function BindIM() {
   const handleDone = useCallback((channelId: string) => {
     setConnected(prev => [...prev.filter(c => c !== channelId), channelId]);
     setSelected(null);
+  }, []);
+
+  const handleDisconnect = useCallback(async (channelId: string) => {
+    setDisconnecting(channelId);
+    try {
+      await api.del(`/portal/channels/${channelId}`);
+      setConnected(prev => prev.filter(c => c !== channelId));
+    } catch {}
+    setDisconnecting(null);
+    setConfirmDisconnect(null);
   }, []);
 
   if (selected) return (
@@ -244,11 +256,31 @@ export default function BindIM() {
                 </div>
               </div>
               {ch.available && (
-                <div className="mt-3">
+                <div className="mt-3 space-y-1.5">
                   {isConnected ? (
-                    <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => setSelected(ch)}>
-                      Reconnect
-                    </Button>
+                    <>
+                      {confirmDisconnect === ch.id ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-danger flex-1">Disconnect {ch.label}?</span>
+                          <Button variant="danger" size="sm" disabled={disconnecting === ch.id}
+                            onClick={() => handleDisconnect(ch.id)}>
+                            {disconnecting === ch.id ? <Loader2 size={12} className="animate-spin" /> : 'Confirm'}
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => setConfirmDisconnect(null)}>Cancel</Button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <Button variant="ghost" size="sm" className="flex-1 text-xs" onClick={() => setSelected(ch)}>
+                            Reconnect
+                          </Button>
+                          <Button variant="ghost" size="sm"
+                            className="text-text-muted hover:text-danger hover:border-danger/30"
+                            onClick={() => setConfirmDisconnect(ch.id)}>
+                            Disconnect
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <Button variant="primary" size="sm" className="w-full" onClick={() => setSelected(ch)}>
                       <Link2 size={13} /> Connect

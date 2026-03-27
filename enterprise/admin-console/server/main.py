@@ -1848,6 +1848,53 @@ def portal_requests(authorization: str = Header(default="")):
     return {"pending": my_pending, "resolved": my_resolved}
 
 
+def _find_channel_user_id(emp_id: str, channel_prefix: str) -> str:
+    """Reverse lookup: given emp_id + channel, return the IM user_id."""
+    try:
+        import boto3 as _b3_rev
+        prefix = _mapping_prefix()
+        ssm = _b3_rev.client("ssm", region_name="us-east-1")
+        resp = ssm.get_parameters_by_path(Path=prefix, Recursive=True, MaxResults=100)
+        for p in resp.get("Parameters", []):
+            if p.get("Value") == emp_id:
+                name = p["Name"].replace(prefix, "")
+                if name.startswith(f"{channel_prefix}__"):
+                    return name.replace(f"{channel_prefix}__", "")
+        return ""
+    except Exception:
+        return ""
+
+
+@app.delete("/api/v1/portal/channels/{channel}")
+def portal_channel_disconnect(channel: str, authorization: str = Header(default="")):
+    """Employee self-service disconnect — deletes SSM mapping for their IM channel."""
+    user = _require_auth(authorization)
+    channel_user_id = _find_channel_user_id(user.employee_id, channel)
+    if not channel_user_id:
+        raise HTTPException(404, f"No {channel} connection found for your account")
+    # Delete the mapping
+    # Delete mappings from us-east-1 (where agent reads from)
+    import boto3 as _b3_del
+    ssm_del = _b3_del.client("ssm", region_name="us-east-1")
+    prefix = _mapping_prefix()
+    for key in [f"{channel}__{channel_user_id}", channel_user_id]:
+        try:
+            ssm_del.delete_parameter(Name=f"{prefix}{key}")
+        except Exception:
+            pass
+    db.create_audit_entry({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "eventType": "config_change",
+        "actorId": user.employee_id,
+        "actorName": user.name,
+        "targetType": "binding",
+        "targetId": f"{channel}__{channel_user_id}",
+        "detail": f"Employee self-service disconnected {channel} ({channel_user_id})",
+        "status": "success",
+    })
+    return {"disconnected": True, "channel": channel}
+
+
 @app.get("/api/v1/portal/channels")
 def portal_channels(authorization: str = Header(default="")):
     """Return list of connected IM channels for the current employee."""
@@ -1855,9 +1902,7 @@ def portal_channels(authorization: str = Header(default="")):
     connected = []
     for channel_prefix in ["telegram", "discord", "slack", "whatsapp", "feishu"]:
         # Check if a SSM mapping exists for this employee+channel combo
-        # We look for any mapping pointing to this employee
-        mapping = _read_user_mapping(channel_prefix, f"emp_{user.employee_id}") or \
-                  _list_user_mappings_for_employee(user.employee_id, channel_prefix)
+        mapping = _list_user_mappings_for_employee(user.employee_id, channel_prefix)
         if mapping:
             connected.append(channel_prefix)
     return {"connected": connected}
