@@ -40,22 +40,55 @@ _RUNTIME_CACHE_TTL = 300  # seconds
 
 
 def _get_runtime_id_for_tenant(base_id: str) -> str:
-    """Look up per-tenant runtime override from SSM. Falls back to default RUNTIME_ID.
-    Used to route executive employees to the Executive Runtime."""
-    import time
+    """Resolve runtime ID for a tenant using a 3-tier fallback chain:
+
+    1. Employee-level  SSM /tenants/{emp_id}/runtime-id      (explicit per-employee)
+    2. Position-level  SSM /positions/{pos_id}/runtime-id    (set per position in Admin Console)
+    3. Default runtime AGENTCORE_RUNTIME_ID env var
+
+    Position is read from SSM /tenants/{emp_id}/position (written at onboarding).
+    All lookups are cached for 5 minutes to minimise SSM API calls.
+    """
     now = time.time()
-    if base_id in _runtime_cache and now - _runtime_cache_ts.get(base_id, 0) < _RUNTIME_CACHE_TTL:
-        return _runtime_cache[base_id]
+    cache_key = f"runtime__{base_id}"
+    if cache_key in _runtime_cache and now - _runtime_cache_ts.get(cache_key, 0) < _RUNTIME_CACHE_TTL:
+        return _runtime_cache[cache_key]
+
+    ssm = boto3.client("ssm", region_name=AWS_REGION)
+
+    # Tier 1: explicit per-employee override
     try:
-        ssm = boto3.client("ssm", region_name=AWS_REGION)
         resp = ssm.get_parameter(Name=f"/openclaw/{STACK_NAME}/tenants/{base_id}/runtime-id")
         runtime = resp["Parameter"]["Value"]
-        _runtime_cache[base_id] = runtime
-        _runtime_cache_ts[base_id] = now
-        logger.info("Runtime override for %s → %s", base_id, runtime)
+        _runtime_cache[cache_key] = runtime
+        _runtime_cache_ts[cache_key] = now
+        logger.info("Runtime (employee override) %s → %s", base_id, runtime)
         return runtime
     except Exception:
-        return RUNTIME_ID
+        pass
+
+    # Tier 2: position-level runtime
+    try:
+        pos_resp = ssm.get_parameter(Name=f"/openclaw/{STACK_NAME}/tenants/{base_id}/position")
+        pos_id = pos_resp["Parameter"]["Value"]
+        pos_cache_key = f"runtime__pos__{pos_id}"
+        if pos_cache_key in _runtime_cache and now - _runtime_cache_ts.get(pos_cache_key, 0) < _RUNTIME_CACHE_TTL:
+            runtime = _runtime_cache[pos_cache_key]
+        else:
+            rt_resp = ssm.get_parameter(Name=f"/openclaw/{STACK_NAME}/positions/{pos_id}/runtime-id")
+            runtime = rt_resp["Parameter"]["Value"]
+            _runtime_cache[pos_cache_key] = runtime
+            _runtime_cache_ts[pos_cache_key] = now
+        _runtime_cache[cache_key] = runtime
+        _runtime_cache_ts[cache_key] = now
+        logger.info("Runtime (position %s) %s → %s", pos_id, base_id, runtime)
+        return runtime
+    except Exception:
+        pass
+
+    # Tier 3: default runtime
+    logger.info("Runtime (default) %s → %s", base_id, RUNTIME_ID)
+    return RUNTIME_ID
 
 # Tenant ID validation: alphanumeric, underscores, hyphens, dots
 _TENANT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_.\-]{1,128}$")

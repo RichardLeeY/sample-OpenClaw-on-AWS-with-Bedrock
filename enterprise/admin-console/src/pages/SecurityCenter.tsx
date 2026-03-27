@@ -13,6 +13,7 @@ import {
   useInfrastructure, useEcrImages, useIamRoles, useVpcResources,
   useModelConfig, useUpdateModelConfig, useUpdateFallbackModel,
   useSetPositionModel, useRemovePositionModel,
+  usePositionRuntimeMap, useSetPositionRuntime, useDeletePositionRuntime,
 } from '../hooks/useApi';
 import { Select } from '../components/ui';
 
@@ -685,9 +686,18 @@ export default function SecurityCenter() {
   const [soulTarget, setSoulTarget] = useState<any | null | undefined>(undefined);
   const [toolsTarget, setToolsTarget] = useState<any | null>(null);
   const [showCreateRuntime, setShowCreateRuntime] = useState(false);
+  const { data: posRuntimeMap, isLoading: mapLoading } = usePositionRuntimeMap();
+  const setPositionRuntime = useSetPositionRuntime();
+  const deletePositionRuntime = useDeletePositionRuntime();
 
   const runtimes = runtimesData?.runtimes || [];
   const models = modelConfig?.availableModels || [];
+  const runtimeMap = posRuntimeMap?.map || {};
+
+  const runtimeOptions = runtimes.map(rt => ({
+    label: rt.name || rt.id,
+    value: rt.id,
+  }));
 
   return (
     <div>
@@ -764,6 +774,62 @@ export default function SecurityCenter() {
                     <span className={`text-xs shrink-0 ${l.strong ? 'text-success' : 'text-text-muted'}`}>{l.note}</span>
                   </div>
                 ))}
+              </div>
+            </Card>
+
+            {/* ── Position → Runtime Mapping Table ── */}
+            <Card>
+              <div className="flex items-center gap-2 mb-4">
+                <ChevronRight size={18} className="text-primary" />
+                <div>
+                  <h3 className="text-sm font-semibold text-text-primary">Position → Runtime Assignments</h3>
+                  <p className="text-xs text-text-muted">
+                    Assign a runtime to each position. All employees in that position will route to it.
+                    Employee-level overrides take precedence. Falls back to Standard Runtime if unset.
+                  </p>
+                </div>
+              </div>
+              {mapLoading || rtLoading ? (
+                <div className="flex justify-center py-6"><RefreshCw size={16} className="animate-spin text-text-muted" /></div>
+              ) : (
+                <div className="space-y-2">
+                  {positions.map(pos => {
+                    const assignedId = runtimeMap[pos.id] || '';
+                    const assignedRt = runtimes.find(r => r.id === assignedId);
+                    const isExecRuntime = assignedRt?.containerUri?.includes('exec') || assignedRt?.name?.toLowerCase().includes('exec');
+                    return (
+                      <div key={pos.id} className="flex items-center gap-3 rounded-xl bg-surface-dim px-4 py-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-text-primary">{pos.name}</p>
+                          <p className="text-xs text-text-muted">{pos.departmentName}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {assignedRt ? (
+                            <>
+                              <Badge color={isExecRuntime ? 'warning' : 'info'}>{assignedRt.name || assignedId.slice(-8)}</Badge>
+                              <Button size="sm" variant="ghost" className="text-danger hover:text-danger"
+                                onClick={() => deletePositionRuntime.mutate(pos.id)}>
+                                <X size={12} />
+                              </Button>
+                            </>
+                          ) : (
+                            <Badge color="default">Default (Standard)</Badge>
+                          )}
+                          <div className="w-52">
+                            <Select label="" value={assignedId}
+                              onChange={val => val && setPositionRuntime.mutate({ posId: pos.id, runtimeId: val })}
+                              options={runtimeOptions}
+                              placeholder="Assign runtime…"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="mt-3 rounded-xl bg-info/5 border border-info/20 px-3 py-2 text-xs text-info">
+                Changing a position's runtime propagates to all employees in that position via SSM and takes effect on the next agent cold start.
               </div>
             </Card>
           </div>

@@ -3815,6 +3815,98 @@ def put_position_tools(pos_id: str, body: dict, authorization: str = Header(defa
                 print(f"[security] emp {emp['id']} tools write failed: {e2}")
     return {"saved": True, "propagated": len([e for e in emps if e.get("positionId") == pos_id])}
 
+@app.get("/api/v1/security/positions/{pos_id}/runtime")
+def get_position_runtime(pos_id: str, authorization: str = Header(default="")):
+    """Read the runtime assigned to a position (SSM /positions/{pos_id}/runtime-id)."""
+    _require_role(authorization, roles=["admin"])
+    stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
+    try:
+        import boto3 as _b3pr
+        ssm = _b3pr.client("ssm", region_name="us-east-1")
+        resp = ssm.get_parameter(Name=f"/openclaw/{stack}/positions/{pos_id}/runtime-id")
+        return {"posId": pos_id, "runtimeId": resp["Parameter"]["Value"]}
+    except Exception:
+        return {"posId": pos_id, "runtimeId": None}
+
+
+@app.put("/api/v1/security/positions/{pos_id}/runtime")
+def put_position_runtime(pos_id: str, body: dict, authorization: str = Header(default="")):
+    """Assign a runtime to a position. Propagates to all employees in the position
+    by writing their individual SSM /tenants/{emp_id}/runtime-id entries."""
+    _require_role(authorization, roles=["admin"])
+    runtime_id = body.get("runtimeId", "")
+    if not runtime_id:
+        raise HTTPException(400, "runtimeId required")
+    stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
+    import boto3 as _b3pr2
+    ssm = _b3pr2.client("ssm", region_name="us-east-1")
+    # Write position-level SSM (for Tenant Router Tier 2 lookup)
+    ssm.put_parameter(
+        Name=f"/openclaw/{stack}/positions/{pos_id}/runtime-id",
+        Value=runtime_id, Type="String", Overwrite=True,
+    )
+    # Propagate to all employees in this position (Tier 1 override for fast lookup)
+    emps = db.get_employees()
+    propagated = []
+    for emp in emps:
+        if emp.get("positionId") == pos_id:
+            try:
+                ssm.put_parameter(
+                    Name=f"/openclaw/{stack}/tenants/{emp['id']}/runtime-id",
+                    Value=runtime_id, Type="String", Overwrite=True,
+                )
+                propagated.append(emp["id"])
+            except Exception as e:
+                print(f"[position-runtime] emp {emp['id']} failed: {e}")
+    db.create_audit_entry({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "eventType": "config_change",
+        "actorId": "admin",
+        "actorName": "Admin",
+        "targetType": "runtime_assignment",
+        "targetId": f"{pos_id} → {runtime_id}",
+        "detail": f"Position {pos_id} assigned to runtime {runtime_id}. Propagated to {len(propagated)} employees.",
+        "status": "success",
+    })
+    return {"saved": True, "posId": pos_id, "runtimeId": runtime_id, "propagated": propagated}
+
+
+@app.delete("/api/v1/security/positions/{pos_id}/runtime")
+def delete_position_runtime(pos_id: str, authorization: str = Header(default="")):
+    """Remove position-level runtime assignment (employees fall back to default)."""
+    _require_role(authorization, roles=["admin"])
+    stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
+    import boto3 as _b3pr3
+    ssm = _b3pr3.client("ssm", region_name="us-east-1")
+    try:
+        ssm.delete_parameter(Name=f"/openclaw/{stack}/positions/{pos_id}/runtime-id")
+    except Exception:
+        pass
+    return {"deleted": True, "posId": pos_id}
+
+
+@app.get("/api/v1/security/position-runtime-map")
+def get_position_runtime_map(authorization: str = Header(default="")):
+    """Get all position → runtime assignments in one call (for the UI mapping table)."""
+    _require_role(authorization, roles=["admin"])
+    stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
+    import boto3 as _b3prm
+    ssm = _b3prm.client("ssm", region_name="us-east-1")
+    result = {}
+    try:
+        prefix = f"/openclaw/{stack}/positions/"
+        paginator = ssm.get_paginator("get_parameters_by_path")
+        for page in paginator.paginate(Path=prefix, Recursive=True):
+            for p in page["Parameters"]:
+                name = p["Name"].replace(prefix, "")
+                if name.endswith("/runtime-id"):
+                    pos_id = name.replace("/runtime-id", "")
+                    result[pos_id] = p["Value"]
+    except Exception as e:
+        print(f"[position-runtime-map] {e}")
+    return {"map": result}
+
+
 @app.get("/api/v1/security/runtimes")
 def get_security_runtimes(authorization: str = Header(default="")):
     _require_role(authorization, roles=["admin"])

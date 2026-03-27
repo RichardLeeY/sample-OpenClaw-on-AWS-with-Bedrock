@@ -772,3 +772,33 @@ export function useCreateRuntime() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['security-runtimes'] }),
   });
 }
+
+// ── Position → Runtime mapping ────────────────────────────────────────────────
+
+export function usePositionRuntimeMap() {
+  return useQuery<{ map: Record<string, string> }>({
+    queryKey: ['position-runtime-map'],
+    queryFn: () => api.get('/security/position-runtime-map'),
+    staleTime: 30_000,
+  });
+}
+
+export function useSetPositionRuntime() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ posId, runtimeId }: { posId: string; runtimeId: string }) =>
+      api.put(`/security/positions/${posId}/runtime`, { runtimeId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['position-runtime-map'] });
+      qc.invalidateQueries({ queryKey: ['security-runtimes'] });
+    },
+  });
+}
+
+export function useDeletePositionRuntime() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (posId: string) => api.del(`/security/positions/${posId}/runtime`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['position-runtime-map'] }),
+  });
+}
