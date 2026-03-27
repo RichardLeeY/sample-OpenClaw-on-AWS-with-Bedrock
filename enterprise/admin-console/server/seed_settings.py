@@ -39,6 +39,27 @@ def seed(table_name: str, region: str):
         "verboseAudit": False,
     })
 
+    # KB assignments — which knowledge bases each position receives by default.
+    # All positions get company policies + onboarding; role-specific KBs are layered on top.
+    # Admins can adjust these from Knowledge Base → Assignments tab in the Admin Console.
+    items.append({"PK": ORG, "SK": "CONFIG#kb-assignments", "GSI1PK": "TYPE#config", "GSI1SK": "CONFIG#kb-assignments",
+        "positionKBs": {
+            "pos-sa":     ["kb-policies", "kb-onboarding", "kb-cases", "kb-arch"],
+            "pos-sde":    ["kb-policies", "kb-onboarding", "kb-arch", "kb-runbooks"],
+            "pos-devops": ["kb-policies", "kb-onboarding", "kb-runbooks"],
+            "pos-qa":     ["kb-policies", "kb-onboarding", "kb-arch"],
+            "pos-ae":     ["kb-policies", "kb-onboarding", "kb-cases"],
+            "pos-pm":     ["kb-policies", "kb-onboarding", "kb-product"],
+            "pos-fa":     ["kb-policies", "kb-onboarding", "kb-finance"],
+            "pos-hr":     ["kb-policies", "kb-onboarding", "kb-hr"],
+            "pos-csm":    ["kb-policies", "kb-onboarding", "kb-customer", "kb-cases"],
+            "pos-legal":  ["kb-policies", "kb-onboarding", "kb-legal"],
+            "pos-exec":   ["kb-policies", "kb-onboarding", "kb-finance", "kb-product"],
+            "pos-admin":  ["kb-policies", "kb-onboarding"],
+        },
+        "employeeKBs": {},
+    })
+
     print(f"Writing {len(items)} config items...")
     with table.batch_writer() as batch:
         for item in items:

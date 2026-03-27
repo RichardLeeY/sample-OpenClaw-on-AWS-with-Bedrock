@@ -504,7 +504,7 @@ aws s3 cp enterprise/gateway/tenant-router.service  "s3://${S3_BUCKET}/_deploy/t
 aws ssm send-command --instance-ids $INSTANCE_ID --region $REGION \
   --document-name AWS-RunShellScript \
   --parameters "{\"commands\":[
-    \"mkdir -p /etc/openclaw && printf 'STACK_NAME=${STACK_NAME}\\nAWS_REGION=${REGION}\\n' > /etc/openclaw/env\",
+    \"mkdir -p /etc/openclaw && printf 'STACK_NAME=${STACK_NAME}\\nAWS_REGION=${REGION}\\nGATEWAY_INSTANCE_ID=${INSTANCE_ID}\\n' > /etc/openclaw/env\",
     \"pip3 install boto3 requests\",
     \"aws s3 cp s3://${S3_BUCKET}/_deploy/tenant_router.py /home/ubuntu/tenant_router.py --region $REGION\",
     \"aws s3 cp s3://${S3_BUCKET}/_deploy/bedrock_proxy_h2.js /home/ubuntu/bedrock_proxy_h2.js --region $REGION\",
@@ -591,8 +591,10 @@ Agent Factory → **Configuration tab** → set Sonnet 4.5 for Solutions Archite
 → set `language: 中文` for any position → agents default to Chinese
 
 ### 10. Knowledge Base Assignments
-Knowledge Base → **Assignments tab** → assign "ACME Corp Directory" to all positions
-→ agents now know the full org structure and who to contact
+Knowledge Base → **Assignments tab** → verify that positions have `kb-policies` and `kb-onboarding` pre-assigned (seeded by default)
+→ agents can now answer org policy and onboarding questions
+→ add `kb-arch` to Engineering positions for architecture standards
+→ to add a new KB: upload a Markdown file → assign to positions → agents pick it up on next cold start
 
 ## Demo Accounts
 

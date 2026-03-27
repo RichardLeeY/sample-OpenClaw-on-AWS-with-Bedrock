@@ -526,10 +526,27 @@ def _ensure_workspace_assembled(tenant_id: str) -> None:
                             kb_item = table.get_item(Key={"PK": "ORG#acme", "SK": f"KB#{kb_id}"}).get("Item")
                             if not kb_item:
                                 continue
+                            # Build files list: use explicit files array if present,
+                            # otherwise fall back to listing the s3Prefix.
+                            # seed_knowledge.py creates KB items with s3Prefix only (no files array),
+                            # so the s3Prefix fallback is required for freshly seeded deployments.
+                            files_list = kb_item.get("files", [])
+                            if not files_list:
+                                s3_prefix = kb_item.get("s3Prefix", "")
+                                if s3_prefix:
+                                    try:
+                                        resp = s3_kb.list_objects_v2(Bucket=S3_BUCKET, Prefix=s3_prefix)
+                                        for obj in resp.get("Contents", []):
+                                            key = obj["Key"]
+                                            fname = key.split("/")[-1]
+                                            if fname and not fname.startswith("."):
+                                                files_list.append({"s3Key": key, "filename": fname})
+                                    except Exception as list_err:
+                                        logger.warning("KB prefix listing failed for %s: %s", kb_id, list_err)
                             # Download KB files into workspace/knowledge/{kb_id}/
                             kb_sub = os.path.join(kb_dir, kb_id)
                             os.makedirs(kb_sub, exist_ok=True)
-                            for file_ref in kb_item.get("files", []):
+                            for file_ref in files_list:
                                 s3_key = file_ref.get("s3Key", "")
                                 fname = file_ref.get("filename", s3_key.split("/")[-1])
                                 local_path = os.path.join(kb_sub, fname)

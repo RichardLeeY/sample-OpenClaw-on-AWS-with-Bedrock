@@ -32,6 +32,49 @@ import auth as authmod
 
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-2")
 
+# Gateway region: where EC2, SSM, ECR, and AgentCore live.
+# Reads AWS_REGION env var (set in /etc/openclaw/env); falls back to us-east-1.
+# Note: DynamoDB may be in a different region (DYNAMODB_REGION) — handled separately.
+_GATEWAY_REGION = os.environ.get("AWS_REGION", os.environ.get("SSM_REGION", "us-east-1"))
+
+
+def _resolve_gateway_instance_id() -> str:
+    """Resolve the EC2 instance ID this server is running on.
+    Reads GATEWAY_INSTANCE_ID env var first (set in /etc/openclaw/env),
+    then falls back to IMDSv2 (works when running on EC2)."""
+    iid = os.environ.get("GATEWAY_INSTANCE_ID", "")
+    if iid:
+        return iid
+    try:
+        import urllib.request
+        # IMDSv2: get session token, then fetch instance-id
+        put_req = urllib.request.Request(
+            "http://169.254.169.254/latest/api/token",
+            method="PUT",
+            headers={"X-aws-ec2-metadata-token-ttl-seconds": "21600"},
+        )
+        token = urllib.request.urlopen(put_req, timeout=2).read().decode()
+        get_req = urllib.request.Request(
+            "http://169.254.169.254/latest/meta-data/instance-id",
+            headers={"X-aws-ec2-metadata-token": token},
+        )
+        return urllib.request.urlopen(get_req, timeout=2).read().decode()
+    except Exception:
+        return ""
+
+
+def _resolve_gateway_account_id() -> str:
+    """Resolve the AWS account ID this server is running in, via STS."""
+    try:
+        import boto3 as _b3sts
+        return _b3sts.client("sts", region_name=_GATEWAY_REGION).get_caller_identity()["Account"]
+    except Exception:
+        return ""
+
+
+_GATEWAY_INSTANCE_ID: str = _resolve_gateway_instance_id()
+_GATEWAY_ACCOUNT_ID: str = _resolve_gateway_account_id()
+
 # Server start time — used to compute uptime for /settings/services
 _SERVER_START_TIME = time.time()
 
@@ -362,7 +405,7 @@ def _get_active_agent_ids() -> set:
     Returns set of employee IDs that are active."""
     try:
         import time as _t
-        cw = _boto3.client("logs", region_name="us-east-1")
+        cw = _boto3.client("logs", region_name=_GATEWAY_REGION)
         start_time = int((_t.time() - 900) * 1000)  # 15 min ago
         active_ids = set()
         for lg in _get_all_agentcore_log_groups():
@@ -491,7 +534,7 @@ def create_agent(body: dict):
         })
 
         # 3. Seed minimal S3 workspace if it doesn't already exist
-        s3_bucket = os.environ.get("S3_BUCKET", "openclaw-tenants-263168716248")
+        s3_bucket = os.environ.get("S3_BUCKET", f"openclaw-tenants-{_GATEWAY_ACCOUNT_ID}")
         try:
             import boto3 as _b3_ws
             s3 = _b3_ws.client("s3", region_name=region)
@@ -1008,7 +1051,7 @@ def approve_pairing(body: PairingApproveRequest, authorization: str = Header(def
     if body.channel == "discord" and body.channelUserId:
         try:
             creds_src = "/home/ubuntu/.openclaw/credentials/discord-default-allowFrom.json"
-            s3_bucket = os.environ.get("S3_BUCKET", "openclaw-tenants-263168716248")
+            s3_bucket = os.environ.get("S3_BUCKET", f"openclaw-tenants-{_GATEWAY_ACCOUNT_ID}")
             s3_key = "_shared/openclaw-creds/discord-default-allowFrom.json"
             if os.path.isfile(creds_src):
                 import subprocess as _sp2
@@ -1661,7 +1704,7 @@ def pair_complete(body: PairCompleteRequest):
     # Write SSM mapping — must use us-east-1 (where agent container reads from)
     # pair_complete is the only endpoint called by H2 Proxy, so we need explicit region
     import boto3 as _b3_pair
-    _ssm_pair = _b3_pair.client("ssm", region_name="us-east-1")
+    _ssm_pair = _b3_pair.client("ssm", region_name=_GATEWAY_REGION)
     _prefix = _mapping_prefix()
     for key in [f"{channel}__{body.channelUserId}", body.channelUserId]:
         try:
@@ -1981,7 +2024,7 @@ def _find_channel_user_id(emp_id: str, channel_prefix: str) -> str:
     try:
         import boto3 as _b3_rev
         prefix = _mapping_prefix()
-        ssm = _b3_rev.client("ssm", region_name="us-east-1")
+        ssm = _b3_rev.client("ssm", region_name=_GATEWAY_REGION)
         resp = ssm.get_parameters_by_path(Path=prefix, Recursive=True, MaxResults=10)
         for p in resp.get("Parameters", []):
             if p.get("Value") == emp_id:
@@ -2003,7 +2046,7 @@ def portal_channel_disconnect(channel: str, authorization: str = Header(default=
     # Delete the mapping
     # Delete mappings from us-east-1 (where agent reads from)
     import boto3 as _b3_del
-    ssm_del = _b3_del.client("ssm", region_name="us-east-1")
+    ssm_del = _b3_del.client("ssm", region_name=_GATEWAY_REGION)
     prefix = _mapping_prefix()
     for key in [f"{channel}__{channel_user_id}", channel_user_id]:
         try:
@@ -2060,7 +2103,7 @@ def _list_user_mappings_for_employee(emp_id: str, channel_prefix: str) -> bool:
     try:
         import boto3 as _b3_chk
         prefix = _mapping_prefix()
-        ssm = _b3_chk.client("ssm", region_name="us-east-1")
+        ssm = _b3_chk.client("ssm", region_name=_GATEWAY_REGION)
         resp = ssm.get_parameters_by_path(Path=prefix, Recursive=True, MaxResults=10)
         for p in resp.get("Parameters", []):
             if p.get("Value") == emp_id and channel_prefix in p.get("Name", ""):
@@ -2122,7 +2165,7 @@ def _get_all_agentcore_log_groups() -> list:
     """Dynamically discover all AgentCore runtime log groups.
     Caches for 5 minutes so new runtimes are picked up automatically."""
     try:
-        cw = _boto3.client("logs", region_name="us-east-1")
+        cw = _boto3.client("logs", region_name=_GATEWAY_REGION)
         resp = cw.describe_log_groups(logGroupNamePrefix="/aws/bedrock-agentcore/runtimes/")
         groups = [g["logGroupName"] for g in resp.get("logGroups", [])]
         extra = ["/openclaw/openclaw-multitenancy/agents"]
@@ -2369,7 +2412,7 @@ def get_runtime_events(minutes: int = 30):
     """Query CloudWatch Logs for microVM lifecycle events (invocations, SIGTERM, assembly)."""
     try:
         import time as _time
-        cw = _boto3.client("logs", region_name="us-east-1")
+        cw = _boto3.client("logs", region_name=_GATEWAY_REGION)
         start_time = int((_time.time() - minutes * 60) * 1000)
         events = []
 
@@ -3387,7 +3430,7 @@ def get_im_channels(authorization: str = Header(default="")):
     """Get live IM channel status from Gateway + SSM mappings count per channel."""
     _require_role(authorization, roles=["admin", "manager"])
     import boto3 as _b3_ch
-    ssm = _b3_ch.client("ssm", region_name="us-east-1")
+    ssm = _b3_ch.client("ssm", region_name=_GATEWAY_REGION)
 
     # Get all user mappings to count per channel
     channel_counts: dict = {}
@@ -4003,7 +4046,7 @@ def put_position_tools(pos_id: str, body: dict, authorization: str = Header(defa
             try:
                 # Use us-east-1 — where agent container reads
                 import boto3 as _b3_t
-                ssm_e1 = _b3_t.client("ssm", region_name="us-east-1")
+                ssm_e1 = _b3_t.client("ssm", region_name=_GATEWAY_REGION)
                 ssm_e1.put_parameter(Name=f"/openclaw/{stack}/tenants/{emp['id']}/permissions",
                                      Value=value, Type="String", Overwrite=True)
             except Exception as e2:
@@ -4017,7 +4060,7 @@ def get_position_runtime(pos_id: str, authorization: str = Header(default="")):
     stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
     try:
         import boto3 as _b3pr
-        ssm = _b3pr.client("ssm", region_name="us-east-1")
+        ssm = _b3pr.client("ssm", region_name=_GATEWAY_REGION)
         resp = ssm.get_parameter(Name=f"/openclaw/{stack}/positions/{pos_id}/runtime-id")
         return {"posId": pos_id, "runtimeId": resp["Parameter"]["Value"]}
     except Exception:
@@ -4034,7 +4077,7 @@ def put_position_runtime(pos_id: str, body: dict, authorization: str = Header(de
         raise HTTPException(400, "runtimeId required")
     stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
     import boto3 as _b3pr2
-    ssm = _b3pr2.client("ssm", region_name="us-east-1")
+    ssm = _b3pr2.client("ssm", region_name=_GATEWAY_REGION)
     # Write position-level SSM (for Tenant Router Tier 2 lookup)
     ssm.put_parameter(
         Name=f"/openclaw/{stack}/positions/{pos_id}/runtime-id",
@@ -4072,7 +4115,7 @@ def delete_position_runtime(pos_id: str, authorization: str = Header(default="")
     _require_role(authorization, roles=["admin"])
     stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
     import boto3 as _b3pr3
-    ssm = _b3pr3.client("ssm", region_name="us-east-1")
+    ssm = _b3pr3.client("ssm", region_name=_GATEWAY_REGION)
     try:
         ssm.delete_parameter(Name=f"/openclaw/{stack}/positions/{pos_id}/runtime-id")
     except Exception:
@@ -4086,7 +4129,7 @@ def get_position_runtime_map(authorization: str = Header(default="")):
     _require_role(authorization, roles=["admin"])
     stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
     import boto3 as _b3prm
-    ssm = _b3prm.client("ssm", region_name="us-east-1")
+    ssm = _b3prm.client("ssm", region_name=_GATEWAY_REGION)
     result = {}
     try:
         prefix = f"/openclaw/{stack}/positions/"
@@ -4107,7 +4150,7 @@ def get_security_runtimes(authorization: str = Header(default="")):
     _require_role(authorization, roles=["admin"])
     try:
         import boto3 as _b3r
-        ac = _b3r.client("bedrock-agentcore-control", region_name="us-east-1")
+        ac = _b3r.client("bedrock-agentcore-control", region_name=_GATEWAY_REGION)
         resp = ac.list_agent_runtimes()
         result = []
         for rt in resp.get("agentRuntimes", []):
@@ -4141,7 +4184,7 @@ def update_runtime_lifecycle(runtime_id: str, body: dict, authorization: str = H
     _require_role(authorization, roles=["admin"])
     try:
         import boto3 as _b3r2
-        ac = _b3r2.client("bedrock-agentcore-control", region_name="us-east-1")
+        ac = _b3r2.client("bedrock-agentcore-control", region_name=_GATEWAY_REGION)
         detail = ac.get_agent_runtime(agentRuntimeId=runtime_id)
         # IMPORTANT: always pass environmentVariables — AgentCore clears them if omitted
         existing_env = detail.get("environmentVariables") or {}
@@ -4171,7 +4214,7 @@ def update_runtime_config(runtime_id: str, body: dict, authorization: str = Head
     _require_role(authorization, roles=["admin"])
     try:
         import boto3 as _b3rc
-        ac = _b3rc.client("bedrock-agentcore-control", region_name="us-east-1")
+        ac = _b3rc.client("bedrock-agentcore-control", region_name=_GATEWAY_REGION)
         detail = ac.get_agent_runtime(agentRuntimeId=runtime_id)
 
         # Build updated artifact
@@ -4242,7 +4285,7 @@ def create_runtime(body: CreateRuntimeRequest, authorization: str = Header(defau
     _require_role(authorization, roles=["admin"])
     try:
         import boto3 as _b3cr
-        ac = _b3cr.client("bedrock-agentcore-control", region_name="us-east-1")
+        ac = _b3cr.client("bedrock-agentcore-control", region_name=_GATEWAY_REGION)
 
         network_cfg: dict = {"networkMode": body.networkMode}
         if body.networkMode == "VPC" and body.securityGroupIds and body.subnetIds:
@@ -4252,7 +4295,7 @@ def create_runtime(body: CreateRuntimeRequest, authorization: str = Header(defau
             }
 
         stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
-        bucket = os.environ.get("S3_BUCKET", "openclaw-tenants-263168716248")
+        bucket = os.environ.get("S3_BUCKET", f"openclaw-tenants-{_GATEWAY_ACCOUNT_ID}")
         region = os.environ.get("AWS_REGION", "us-east-1")
         ddb_region = os.environ.get("DYNAMODB_REGION", "us-east-2")
         ddb_table = os.environ.get("DYNAMODB_TABLE", "openclaw-enterprise")
@@ -4285,7 +4328,7 @@ def list_ecr_images(authorization: str = Header(default="")):
     """List all ECR repos and their tagged images for runtime image selector."""
     _require_role(authorization, roles=["admin"])
     import boto3 as _b3ecr
-    ecr = _b3ecr.client("ecr", region_name="us-east-1")
+    ecr = _b3ecr.client("ecr", region_name=_GATEWAY_REGION)
     account = boto3.client("sts").get_caller_identity()["Account"]
     result = []
     try:
@@ -4352,7 +4395,7 @@ def list_vpc_resources(authorization: str = Header(default="")):
     """List VPCs, subnets, and security groups for runtime network config."""
     _require_role(authorization, roles=["admin"])
     import boto3 as _b3vpc
-    ec2 = _b3vpc.client("ec2", region_name="us-east-1")
+    ec2 = _b3vpc.client("ec2", region_name=_GATEWAY_REGION)
     result = {"vpcs": [], "subnets": [], "securityGroups": []}
     try:
         vpcs = ec2.describe_vpcs()["Vpcs"]
@@ -4438,7 +4481,7 @@ def change_admin_password(body: dict, authorization: str = Header(default="")):
     try:
         stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
         import boto3 as _b3pw
-        _b3pw.client("ssm", region_name="us-east-1").put_parameter(
+        _b3pw.client("ssm", region_name=_GATEWAY_REGION).put_parameter(
             Name=f"/openclaw/{stack}/admin-password",
             Value=new_pw, Type="SecureString", Overwrite=True)
         os.environ["ADMIN_PASSWORD"] = new_pw
@@ -4535,15 +4578,12 @@ def get_system_stats(authorization: str = Header(default="")):
 # =========================================================================
 
 _ALWAYS_ON_PORT_START = 18800  # first always-on container port
-_ALWAYS_ON_ECR_IMAGE = os.environ.get(
-    "AGENT_ECR_IMAGE",
-    "263168716248.dkr.ecr.us-east-1.amazonaws.com/openclaw-multitenancy-multitenancy-agent:latest"
-)
+_ALWAYS_ON_ECR_IMAGE = os.environ.get("AGENT_ECR_IMAGE", "")
 
 def _next_available_port() -> int:
     """Find an unused port for a new always-on container (18800-18899)."""
     stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
-    ssm = _boto3_main.client("ssm", region_name="us-east-1")
+    ssm = _boto3_main.client("ssm", region_name=_GATEWAY_REGION)
     used_ports: set = set()
     try:
         prefix = f"/openclaw/{stack}/always-on/"
@@ -4569,7 +4609,7 @@ def start_always_on_agent(agent_id: str, authorization: str = Header(default="")
     """Start an always-on Docker container for a shared agent on the EC2 gateway."""
     _require_role(authorization, roles=["admin"])
     stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
-    bucket = os.environ.get("S3_BUCKET", "openclaw-tenants-263168716248")
+    bucket = os.environ.get("S3_BUCKET", f"openclaw-tenants-{_GATEWAY_ACCOUNT_ID}")
     ddb_table = os.environ.get("DYNAMODB_TABLE", "openclaw-enterprise")
     ddb_region = os.environ.get("DYNAMODB_REGION", "us-east-2")
 
@@ -4594,19 +4634,28 @@ def start_always_on_agent(agent_id: str, authorization: str = Header(default="")
         f"-e DYNAMODB_REGION={ddb_region} "
         f"-e SYNC_INTERVAL=120 "
         f"--log-opt max-size=50m --log-opt max-file=3 "
-        f"{_ALWAYS_ON_ECR_IMAGE}"
+        f"{ecr_image}"
     )
 
+    ecr_image = _ALWAYS_ON_ECR_IMAGE
+    if not ecr_image:
+        stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
+        ecr_image = f"{_GATEWAY_ACCOUNT_ID}.dkr.ecr.{_GATEWAY_REGION}.amazonaws.com/{stack}-multitenancy-agent:latest"
+
     # Run on EC2 via SSM
+    instance_id = _GATEWAY_INSTANCE_ID
+    if not instance_id:
+        raise HTTPException(500, "GATEWAY_INSTANCE_ID not resolved — set it in /etc/openclaw/env or ensure IMDS is accessible")
     try:
         import boto3 as _b3ssm
-        ssm_run = _b3ssm.client("ssm", region_name="us-east-1")
+        ssm_run = _b3ssm.client("ssm", region_name=_GATEWAY_REGION)
         # Pull latest image first, then start
-        ecr_login = f"aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 263168716248.dkr.ecr.us-east-1.amazonaws.com"
-        pull_cmd = f"docker pull {_ALWAYS_ON_ECR_IMAGE}"
+        ecr_registry = ecr_image.split("/")[0]
+        ecr_login = f"aws ecr get-login-password --region {_GATEWAY_REGION} | docker login --username AWS --password-stdin {ecr_registry}"
+        pull_cmd = f"docker pull {ecr_image}"
         stop_existing = f"docker rm -f always-on-{agent_id} 2>/dev/null || true"
         resp = ssm_run.send_command(
-            InstanceIds=["i-0aa07bd9a04fa2255"],
+            InstanceIds=[instance_id],
             DocumentName="AWS-RunShellScript",
             Parameters={"commands": [ecr_login, pull_cmd, stop_existing, docker_cmd, f"sleep 3 && curl -s http://localhost:{port}/ping && echo STARTED"]},
             TimeoutSeconds=120,
@@ -4617,7 +4666,7 @@ def start_always_on_agent(agent_id: str, authorization: str = Header(default="")
 
     # Register endpoint in SSM
     try:
-        ssm = _boto3_main.client("ssm", region_name="us-east-1")
+        ssm = _boto3_main.client("ssm", region_name=_GATEWAY_REGION)
         ssm.put_parameter(Name=f"/openclaw/{stack}/always-on/{agent_id}/endpoint", Value=endpoint, Type="String", Overwrite=True)
         ssm.put_parameter(Name=f"/openclaw/{stack}/always-on/{agent_id}/port", Value=str(port), Type="String", Overwrite=True)
         ssm.put_parameter(Name=f"/openclaw/{stack}/always-on/{agent_id}/ssm-cmd", Value=cmd_id, Type="String", Overwrite=True)
@@ -4653,7 +4702,7 @@ def stop_always_on_agent(agent_id: str, authorization: str = Header(default=""))
     # Stop container via SSM
     try:
         import boto3 as _b3ssm2
-        ssm_run = _b3ssm2.client("ssm", region_name="us-east-1")
+        ssm_run = _b3ssm2.client("ssm", region_name=_GATEWAY_REGION)
         ssm_run.send_command(
             InstanceIds=["i-0aa07bd9a04fa2255"],
             DocumentName="AWS-RunShellScript",
@@ -4664,7 +4713,7 @@ def stop_always_on_agent(agent_id: str, authorization: str = Header(default=""))
 
     # Remove SSM registration
     try:
-        ssm = _boto3_main.client("ssm", region_name="us-east-1")
+        ssm = _boto3_main.client("ssm", region_name=_GATEWAY_REGION)
         for suffix in ["/endpoint", "/port", "/ssm-cmd"]:
             try:
                 ssm.delete_parameter(Name=f"/openclaw/{stack}/always-on/{agent_id}{suffix}")
@@ -4696,7 +4745,7 @@ def get_always_on_status(agent_id: str, authorization: str = Header(default=""))
     _require_role(authorization, roles=["admin"])
     stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
     try:
-        ssm = _boto3_main.client("ssm", region_name="us-east-1")
+        ssm = _boto3_main.client("ssm", region_name=_GATEWAY_REGION)
         endpoint_param = ssm.get_parameter(Name=f"/openclaw/{stack}/always-on/{agent_id}/endpoint")
         endpoint = endpoint_param["Parameter"]["Value"]
         # Ping the container
@@ -4716,7 +4765,7 @@ def assign_always_on_to_employee(agent_id: str, emp_id: str, authorization: str 
     """Assign an employee to use the always-on agent instead of AgentCore."""
     _require_role(authorization, roles=["admin"])
     stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
-    ssm = _boto3_main.client("ssm", region_name="us-east-1")
+    ssm = _boto3_main.client("ssm", region_name=_GATEWAY_REGION)
     ssm.put_parameter(
         Name=f"/openclaw/{stack}/tenants/{emp_id}/always-on-agent",
         Value=agent_id, Type="String", Overwrite=True,
@@ -4730,7 +4779,7 @@ def unassign_always_on_from_employee(agent_id: str, emp_id: str, authorization: 
     _require_role(authorization, roles=["admin"])
     stack = os.environ.get("STACK_NAME", "openclaw-multitenancy")
     try:
-        _boto3_main.client("ssm", region_name="us-east-1").delete_parameter(
+        _boto3_main.client("ssm", region_name=_GATEWAY_REGION).delete_parameter(
             Name=f"/openclaw/{stack}/tenants/{emp_id}/always-on-agent"
         )
     except Exception:
