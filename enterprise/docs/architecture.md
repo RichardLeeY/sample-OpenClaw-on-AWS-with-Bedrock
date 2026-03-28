@@ -1,6 +1,6 @@
 # OpenClaw Enterprise — Technical Architecture
 
-**Version**: 2026-03-28
+**Version**: 2026-03-29
 **Scope**: Complete technical reference for OpenClaw Enterprise on AWS Bedrock AgentCore.
 **Principle**: Zero OpenClaw source modification. All enterprise controls operate via workspace files (SOUL.md, TOOLS.md, AGENTS.md) and external routing layers.
 
@@ -1092,7 +1092,21 @@ When IT edits the global SOUL.md, the change is written to S3 immediately. Serve
 
 **Planned**: periodic DynamoDB config version check in server.py. If `CONFIG#global-version` incremented, clear `_assembled_tenants` → next message triggers re-assembly.
 
-### 17.6 AgentCore Runtime Update After Image Push
+### 17.6 ECS Always-on Container: HOME and Workspace Path
+
+**Problem**: In the ECS Fargate container, `HOME=/` (root process default), so OpenClaw writes its config to `/.openclaw/openclaw.json`. The Python base image includes an ubuntu user with `/home/ubuntu`, causing `server.py` (which checks `os.path.isdir("/home/ubuntu")`) to use `sudo -u ubuntu HOME=/home/ubuntu`, which then looks for config at `/home/ubuntu/.openclaw/` (missing). Result: OpenClaw starts with no config, no workspace — agent identifies as generic Claude with all workspace files MISSING.
+
+**Detection**: `in_ecs = bool(os.environ.get("ECS_CONTAINER_METADATA_URI_V4"))`. Fargate automatically sets this env var. When in ECS, `server.py` skips sudo and runs openclaw directly with the correct environment including `OPENCLAW_WORKSPACE`.
+
+**Gateway workspace mirror**: OpenClaw Gateway reads SOUL.md from `HOME/.openclaw/workspace/` (`/root/.openclaw/workspace/` in the container). The EFS workspace is at `/mnt/efs/{emp_id}/workspace/`. After each workspace assembly, `server.py` mirrors assembled files (SOUL.md, AGENTS.md, TOOLS.md, CHANNELS.md, IDENTITY.md) to `/root/.openclaw/workspace/` so the Gateway session has the current assembled identity.
+
+### 17.7 SOUL.md Snowball Effect
+
+**Problem**: `workspace_assembler.py` reads the current `SOUL.md` as the "personal layer" before merging. In EFS mode, SOUL.md persists across sessions. If the assembled SOUL (global + position + personal + KB blocks) is read back as the personal layer and re-merged, SOUL.md grows unboundedly: 3KB → 11KB → 71KB. The oversized SOUL wastes the context window with duplicated content and buries new KB appends.
+
+**Fix**: `workspace_assembler.py` uses `.personal_soul_backup.md` as the canonical personal layer. The backup is written on first assembly (from the raw S3 personal SOUL) and never modified. Subsequent assemblies read from the backup, preventing accumulation. The backup is excluded from S3 watchdog sync so it persists on EFS.
+
+### 17.8 AgentCore Runtime Update After Image Push
 
 After pushing a new Docker image to ECR with `docker push ... :latest`, the AgentCore Runtime does not automatically pick up the new image digest. A Runtime update is required:
 
