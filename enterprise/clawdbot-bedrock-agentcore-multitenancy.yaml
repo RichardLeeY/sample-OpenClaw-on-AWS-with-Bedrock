@@ -335,6 +335,33 @@ Resources:
                 Resource:
                   - !GetAtt TenantWorkspaceBucket.Arn
                   - !Sub '${TenantWorkspaceBucket.Arn}/*'
+              - Sid: ECRDescribeForAdminConsole
+                Effect: Allow
+                Action:
+                  - ecr:DescribeImages
+                  - ecr:DescribeRepositories
+                  - ecr:ListImages
+                Resource: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/*"
+              - Sid: ECSOperationsForAdminConsole
+                Effect: Allow
+                Action:
+                  - ecs:RunTask
+                  - ecs:StopTask
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                  - ecs:DescribeClusters
+                  - ecs:DescribeTaskDefinition
+                  - ecs:ListTaskDefinitions
+                  - ecs:TagResource
+                Resource: "*"
+              - Sid: PassRoleForECS
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/*"
+                Condition:
+                  StringLike:
+                    iam:PassedToService: ecs-tasks.amazonaws.com
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName}-instance-role"
