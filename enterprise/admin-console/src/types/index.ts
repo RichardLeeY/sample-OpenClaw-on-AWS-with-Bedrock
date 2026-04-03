@@ -105,12 +105,12 @@ export interface LiveSession {
 export interface AuditEntry {
   id: string;
   timestamp: string;
-  eventType: 'agent_invocation' | 'tool_execution' | 'config_change' | 'permission_denied' | 'approval_decision' | 'session_start' | 'session_end';
+  eventType: 'agent_invocation' | 'tool_execution' | 'config_change' | 'permission_denied' | 'approval_decision' | 'session_start' | 'session_end' | 'guardrail_block';
   actorId: string;
-  actorName: string;
-  targetType: 'agent' | 'employee' | 'position' | 'department' | 'skill' | 'binding' | 'system';
+  actorName: string | null;
+  targetType: 'agent' | 'employee' | 'position' | 'department' | 'skill' | 'binding' | 'system' | 'guardrail';
   targetId: string;
-  detail: string;
+  detail: string | null;
   status: 'success' | 'blocked' | 'warning' | 'info';
 }
 

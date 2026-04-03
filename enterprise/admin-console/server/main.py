@@ -282,9 +282,52 @@ def create_employee(body: dict):
 
 @app.get("/api/v1/org/employees/activity")
 def get_employee_activities(authorization: str = Header(default="")):
-    """Get activity data for all employees from DynamoDB."""
+    """Get activity data for all employees — seed records + session-derived for gaps."""
     user = _get_current_user(authorization)
     activities = db.get_activities()
+
+    # Build map of employeeId → activity from seed/stored records
+    activity_map: dict = {a["employeeId"]: a for a in activities if a.get("employeeId")}
+
+    # For employees with no stored activity record, derive from SESSION# records.
+    # This covers users who connected via portal but were seeded without activity data.
+    try:
+        all_sessions = db.get_sessions()
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        week_ago = (now - timedelta(days=7)).isoformat()
+
+        # Group sessions by employee
+        sessions_by_emp: dict = {}
+        for s in all_sessions:
+            eid = s.get("employeeId")
+            if eid and eid != "unknown":
+                sessions_by_emp.setdefault(eid, []).append(s)
+
+        for eid, emp_sessions in sessions_by_emp.items():
+            if eid in activity_map and activity_map[eid].get("source") != "seed":
+                continue  # real data already present; skip. seed data gets overwritten by real sessions.
+            week_sessions = [s for s in emp_sessions if s.get("lastActive", "") >= week_ago]
+            last_active = max((s.get("lastActive", "") for s in emp_sessions), default="")
+            channel_status = {}
+            for s in emp_sessions[:5]:
+                ch = s.get("channel", "portal")
+                if last_active:
+                    channel_status[ch] = {"lastActive": last_active}
+            activity_map[eid] = {
+                "employeeId": eid,
+                "messagesThisWeek": sum(int(s.get("turns", 0)) for s in week_sessions),
+                "lastActive": last_active,
+                "totalSessions": len(emp_sessions),
+                "weekSessions": len(week_sessions),
+                "channelStatus": channel_status,
+                "source": "derived",
+            }
+    except Exception:
+        pass  # non-fatal — fall back to seed data only
+
+    activities = list(activity_map.values())
+
     if user and user.role == "manager":
         scope = _get_dept_scope(user)
         if scope is not None:
@@ -907,6 +950,23 @@ def get_bindings(authorization: str = Header(default="")):
             employees = db.get_employees()
             emp_ids_in_scope = {e["id"] for e in employees if e.get("departmentId") in scope}
             bindings = [b for b in bindings if b.get("employeeId") in emp_ids_in_scope]
+
+    # Enrich bindings that are missing employeeName or agentName.
+    # portal bindings created by seed_workspaces.py were written without names.
+    needs_enrich = any(not b.get("employeeName") or not b.get("agentName") for b in bindings)
+    if needs_enrich:
+        emp_map = {e["id"]: e for e in db.get_employees()}
+        agent_map = {a["id"]: a for a in db.get_agents()}
+        for b in bindings:
+            if not b.get("employeeName"):
+                emp = emp_map.get(b.get("employeeId", ""))
+                if emp:
+                    b["employeeName"] = emp.get("name", b.get("employeeId", ""))
+            if not b.get("agentName"):
+                agent = agent_map.get(b.get("agentId", ""))
+                if agent:
+                    b["agentName"] = agent.get("name", b.get("agentId", ""))
+
     return bindings
 
 @app.post("/api/v1/bindings")

@@ -63,15 +63,15 @@ export default function AuditLog() {
     const byType: Record<string, number> = {};
     AUDIT_ENTRIES.forEach(e => { byType[e.eventType] = (byType[e.eventType] || 0) + 1; });
     const byActor: Record<string, number> = {};
-    AUDIT_ENTRIES.forEach(e => { byActor[e.actorName] = (byActor[e.actorName] || 0) + 1; });
+    AUDIT_ENTRIES.forEach(e => { const key = e.actorName || 'unknown'; byActor[key] = (byActor[key] || 0) + 1; });
     const topActors = Object.entries(byActor).sort((a, b) => b[1] - a[1]).slice(0, 5);
     return { total, blocked, invocations, toolExecs, configChanges, byType, topActors };
   }, [AUDIT_ENTRIES]);
 
   const filtered = AUDIT_ENTRIES.filter(e => {
     const matchesText = !filterText ||
-      e.actorName.toLowerCase().includes(filterText.toLowerCase()) ||
-      e.detail.toLowerCase().includes(filterText.toLowerCase());
+      (e.actorName || '').toLowerCase().includes(filterText.toLowerCase()) ||
+      (e.detail || '').toLowerCase().includes(filterText.toLowerCase());
     const matchesType = eventType === 'all' || e.eventType === eventType;
     return matchesText && matchesType;
   });
@@ -86,7 +86,7 @@ export default function AuditLog() {
         description="Conversation audit, sensitive operation logs, and compliance tracking"
         actions={<Button variant="default" onClick={() => {
           const csv = ['Timestamp,Event Type,Actor,Target,Detail,Status', ...AUDIT_ENTRIES.map(e =>
-            `"${e.timestamp}","${e.eventType}","${e.actorName}","${e.targetType}","${e.detail.replace(/"/g, '""')}","${e.status}"`)].join('\n');
+            `"${e.timestamp}","${e.eventType}","${e.actorName || ''}","${e.targetType}","${(e.detail || '').replace(/"/g, '""')}","${e.status}"`)].join('\n');
           const blob = new Blob([csv], { type: 'text/csv' });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a'); a.href = url; a.download = `audit-export-${new Date().toISOString().slice(0,10)}.csv`; a.click();
