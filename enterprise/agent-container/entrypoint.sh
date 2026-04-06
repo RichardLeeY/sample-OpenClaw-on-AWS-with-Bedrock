@@ -187,7 +187,7 @@ fi
 # construct the full URL for the employee.
 if [ "$GATEWAY_READY" = "true" ] && [ -n "${SHARED_AGENT_ID:-}" ]; then
     DASHBOARD_OUTPUT=$(timeout 10 openclaw dashboard --no-open 2>&1 || true)
-    DASHBOARD_TOKEN=$(echo "$DASHBOARD_OUTPUT" | grep -oP '(?<=#token=)[a-f0-9]+' || true)
+    DASHBOARD_TOKEN=$(echo "$DASHBOARD_OUTPUT" | sed -n 's/.*#token=\([a-f0-9]*\).*/\1/p' | head -1)
     if [ -n "$DASHBOARD_TOKEN" ]; then
         aws ssm put-parameter \
             --name "/openclaw/${STACK_NAME}/always-on/${SHARED_AGENT_ID}/dashboard-token" \
