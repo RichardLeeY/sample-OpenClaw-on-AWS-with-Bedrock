@@ -368,19 +368,36 @@ export default function BindIM() {
                 : 'Your agent starts on demand. Connect via the company bot below.'
             )}
           </p>
-          {deployMode === 'always-on-ecs' && (
-            <div className="mt-3 rounded-lg bg-dark-bg border border-dark-border p-3 space-y-2">
+          {deployMode === 'always-on-ecs' && channelInfo?.agentIp && (
+            <div className="mt-3 rounded-lg bg-dark-bg border border-dark-border p-3 space-y-2.5">
               <p className="text-xs font-medium text-text-primary">Gateway Console Access</p>
               <p className="text-xs text-text-muted">
-                Your agent has a dedicated Gateway UI for managing IM channels.
-                Use SSM port-forward to access it securely:
+                Your agent has a dedicated Gateway UI for managing IM channels. Access via SSM port-forward:
               </p>
-              <div className="relative">
-                <code className="block text-[10px] bg-dark-card rounded px-2 py-1.5 text-text-secondary font-mono break-all select-all">
-                  aws ssm start-session --target {channelInfo?.instanceId || 'i-xxx'} --region us-east-1 --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters '{`{"host":["${channelInfo?.agentIp || '10.0.x.x'}"],"portNumber":["18789"],"localPortNumber":["18789"]}`}'
-                </code>
+              <div>
+                <p className="text-[10px] text-text-muted mb-1">1. Run in terminal:</p>
+                <div className="relative group">
+                  <code className="block text-[10px] bg-dark-card rounded px-2 py-1.5 text-text-secondary font-mono break-all select-all cursor-pointer"
+                    onClick={(e) => { navigator.clipboard.writeText((e.target as HTMLElement).textContent || ''); }}
+                    title="Click to copy">
+                    {`aws ssm start-session --target ${channelInfo.instanceId || 'i-xxx'} --region us-east-1 --document-name AWS-StartPortForwardingSessionToRemoteHost --parameters '{"host":["${channelInfo.agentIp}"],"portNumber":["18789"],"localPortNumber":["18789"]}'`}
+                  </code>
+                </div>
               </div>
-              <p className="text-xs text-text-muted">Then open <a href="http://localhost:18789" target="_blank" rel="noopener" className="text-primary hover:underline">http://localhost:18789</a></p>
+              <div>
+                <p className="text-[10px] text-text-muted mb-1">2. Open in browser:</p>
+                {channelInfo?.gatewayToken ? (
+                  <a
+                    href={`http://localhost:18789/?token=${channelInfo.gatewayToken}${channelInfo.dashboardToken ? '#token=' + channelInfo.dashboardToken : ''}`}
+                    target="_blank" rel="noopener"
+                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+                  >
+                    <Zap size={12} /> Open Gateway Console (localhost)
+                  </a>
+                ) : (
+                  <span className="text-xs text-text-muted">http://localhost:18789</span>
+                )}
+              </div>
             </div>
           )}
         </div>

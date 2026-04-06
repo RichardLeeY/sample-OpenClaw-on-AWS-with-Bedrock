@@ -167,13 +167,34 @@ GATEWAY_PID=$!
 echo "[entrypoint] OpenClaw Gateway PID=${GATEWAY_PID}"
 
 # Wait up to 20s for Gateway to start listening (V8 cache makes this ~2-3s)
+GATEWAY_READY=false
 for i in $(seq 1 20); do
     if ss -tlnp 2>/dev/null | grep -q ":18789"; then
         echo "[entrypoint] Gateway ready on port 18789 (${i}s)"
+        GATEWAY_READY=true
         break
     fi
     sleep 1
 done
+
+# Auto-pair Control UI and store the dashboard URL token in SSM.
+# `openclaw dashboard --no-open` outputs a URL with #token=xxx which is the
+# one-time pairing token. We extract and store it so the admin console can
+# construct the full URL for the employee.
+if [ "$GATEWAY_READY" = "true" ] && [ -n "${SHARED_AGENT_ID:-}" ]; then
+    DASHBOARD_OUTPUT=$(timeout 10 openclaw dashboard --no-open 2>&1 || true)
+    DASHBOARD_TOKEN=$(echo "$DASHBOARD_OUTPUT" | grep -oP '(?<=#token=)[a-f0-9]+' || true)
+    if [ -n "$DASHBOARD_TOKEN" ]; then
+        aws ssm put-parameter \
+            --name "/openclaw/${STACK_NAME}/always-on/${SHARED_AGENT_ID}/dashboard-token" \
+            --value "$DASHBOARD_TOKEN" --type "String" --overwrite \
+            --region "$AWS_REGION" 2>/dev/null \
+            && echo "[entrypoint] Dashboard pairing token stored in SSM" \
+            || echo "[entrypoint] WARNING: Dashboard token SSM write failed"
+    else
+        echo "[entrypoint] No dashboard token extracted (non-fatal)"
+    fi
+fi
 
 # =============================================================================
 # Step 1: Start server.py IMMEDIATELY — health check must respond in seconds

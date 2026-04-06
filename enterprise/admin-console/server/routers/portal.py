@@ -789,19 +789,33 @@ def portal_channels(authorization: str = Header(default="")):
 
     instructions = ch_instructions
 
-    # For always-on: resolve container IP + instance ID for SSM port-forward
+    # For always-on: resolve container IP, instance ID, and gateway tokens for SSM port-forward
     agent_ip = None
+    gw_token = None
+    dashboard_token = None
     instance_id = GATEWAY_INSTANCE_ID if GATEWAY_INSTANCE_ID else None
     if is_always_on and always_on_agent_id:
         try:
             ep = ssm_ch.get_parameter(
                 Name=f"/openclaw/{stack}/always-on/{always_on_agent_id}/endpoint"
             )["Parameter"]["Value"]
-            # ep is like http://10.0.1.253:8080 — extract IP
             import re
             m = re.search(r'(\d+\.\d+\.\d+\.\d+)', ep)
             if m:
                 agent_ip = m.group(1)
+        except Exception:
+            pass
+        try:
+            gw_token = ssm_ch.get_parameter(
+                Name=f"/openclaw/{stack}/always-on/{always_on_agent_id}/gateway-token",
+                WithDecryption=True,
+            )["Parameter"]["Value"]
+        except Exception:
+            pass
+        try:
+            dashboard_token = ssm_ch.get_parameter(
+                Name=f"/openclaw/{stack}/always-on/{always_on_agent_id}/dashboard-token",
+            )["Parameter"]["Value"]
         except Exception:
             pass
 
@@ -814,6 +828,8 @@ def portal_channels(authorization: str = Header(default="")):
         "alwaysOnAgentId": always_on_agent_id,
         "agentIp": agent_ip,
         "instanceId": instance_id,
+        "gatewayToken": gw_token,
+        "dashboardToken": dashboard_token,
     }
 
 
