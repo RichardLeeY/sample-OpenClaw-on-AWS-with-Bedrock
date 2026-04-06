@@ -352,16 +352,28 @@ if [ -n "${SHARED_AGENT_ID:-}" ] && [ -n "${ECS_CONTAINER_METADATA_URI_V4:-}" ];
         sleep 1
     done
     # Get this task's private IP from ECS metadata v4
-    TASK_IP=$(curl -sf "${ECS_CONTAINER_METADATA_URI_V4}" 2>/dev/null \
-        | python3 -c "
+    # Try task-level endpoint first (/task), then container-level as fallback.
+    # The task endpoint has the ENI details with the private IP.
+    TASK_IP=""
+    for META_URL in "${ECS_CONTAINER_METADATA_URI_V4}/task" "${ECS_CONTAINER_METADATA_URI_V4}"; do
+        TASK_IP=$(curl -sf "$META_URL" 2>/dev/null \
+            | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    nets = data.get('Networks', [])
-    print(nets[0].get('IPv4Addresses', [''])[0] if nets else '')
+    # Task-level: Containers[].Networks[].IPv4Addresses[]
+    for c in data.get('Containers', [data]):
+        for n in c.get('Networks', []):
+            addrs = n.get('IPv4Addresses', [])
+            if addrs:
+                print(addrs[0])
+                sys.exit(0)
+    print('')
 except Exception:
     print('')
 " 2>/dev/null || echo "")
+        if [ -n "$TASK_IP" ]; then break; fi
+    done
     if [ -n "$TASK_IP" ]; then
         ENDPOINT="http://${TASK_IP}:8080"
         aws ssm put-parameter \
