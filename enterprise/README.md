@@ -574,7 +574,7 @@ aws bedrock-agentcore-control update-agent-runtime \
   --agent-runtime-artifact "{\"containerConfiguration\":{\"containerUri\":\"${ECR_EXEC}:latest\"}}" \
   --role-arn "$EXEC_ROLE" \
   --network-configuration '{"networkMode":"PUBLIC"}' \
-  --environment-variables "{\"AWS_REGION\":\"${REGION}\",\"BEDROCK_MODEL_ID\":\"global.anthropic.claude-sonnet-4-6\",\"S3_BUCKET\":\"${S3_BUCKET}\",\"STACK_NAME\":\"${STACK_NAME}\",\"DYNAMODB_TABLE\":\"openclaw-enterprise\",\"DYNAMODB_REGION\":\"${DYNAMODB_REGION}\",\"SYNC_INTERVAL\":\"120\"}" \
+  --environment-variables "{\"AWS_REGION\":\"${REGION}\",\"BEDROCK_MODEL_ID\":\"global.anthropic.claude-sonnet-4-6\",\"S3_BUCKET\":\"${S3_BUCKET}\",\"STACK_NAME\":\"${STACK_NAME}\",\"DYNAMODB_TABLE\":\"${STACK_NAME}\",\"DYNAMODB_REGION\":\"${DYNAMODB_REGION}\",\"SYNC_INTERVAL\":\"120\"}" \
   --region $REGION
 ```
 
@@ -589,7 +589,7 @@ To create or re-seed manually:
 ```bash
 # Create table (idempotent — safe to run if it already exists)
 aws dynamodb create-table \
-  --table-name openclaw-enterprise \
+  --table-name $STACK_NAME \
   --attribute-definitions \
     AttributeName=PK,AttributeType=S AttributeName=SK,AttributeType=S \
     AttributeName=GSI1PK,AttributeType=S AttributeName=GSI1SK,AttributeType=S \
@@ -837,7 +837,7 @@ To add a new KB: Admin Console → Knowledge Base → upload Markdown → Assign
 | `AGENT_ECR_IMAGE` | No | ECR image URI for always-on containers. Auto-built from `$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$STACK_NAME-multitenancy-agent:latest` if not set. |
 | `CONSOLE_PORT` | No | Admin Console port (default: `8099`) |
 | `TENANT_ROUTER_URL` | No | Tenant Router URL (default: `http://localhost:8090`) |
-| `DYNAMODB_TABLE` | No | Table name (default: `openclaw-enterprise`) |
+| `DYNAMODB_TABLE` | No | Table name — **must equal STACK_NAME** (IAM policy scoped to `table/${StackName}`). Default: same as STACK_NAME |
 | `DYNAMODB_REGION` | No | DynamoDB region if different from `AWS_REGION` (default: `us-east-2`) |
 
 ## Sample Organization

@@ -61,7 +61,8 @@ EXISTING_VPC_ID="${EXISTING_VPC_ID:-}"
 EXISTING_SUBNET_ID="${EXISTING_SUBNET_ID:-}"
 CREATE_VPC_ENDPOINTS="${CREATE_VPC_ENDPOINTS:-false}"
 ALLOWED_SSH_CIDR="${ALLOWED_SSH_CIDR:-127.0.0.1/32}"
-DYNAMODB_TABLE="${DYNAMODB_TABLE:-openclaw-enterprise}"
+# IMPORTANT: Table name must match STACK_NAME (IAM policy: table/${StackName})
+DYNAMODB_TABLE="${DYNAMODB_TABLE:-$STACK_NAME}"
 DYNAMODB_REGION="${DYNAMODB_REGION:-us-east-2}"
 WORKSPACE_BUCKET_NAME="${WORKSPACE_BUCKET_NAME:-}"
 SKIP_DOCKER_BUILD="${SKIP_DOCKER_BUILD:-false}"
@@ -118,10 +119,8 @@ if [ "$CLI_MAJOR" -lt 2 ] || { [ "$CLI_MAJOR" -eq 2 ] && [ "$CLI_MINOR" -lt 27 ]
 fi
 success "AWS CLI $CLI_VERSION"
 
-if [ "$SKIP_DOCKER_BUILD" != "true" ]; then
-  docker info &>/dev/null || error "Docker is not running. Please start Docker Desktop."
-  success "Docker available"
-fi
+# Docker build runs on the gateway EC2 (ARM64 Graviton), not locally.
+# No local Docker required.
 
 # ── Step 2: CloudFormation ────────────────────────────────────────────────────
 info "[2/7] Deploying CloudFormation stack..."
