@@ -40,7 +40,7 @@
       "mode": "token"
     },
     "controlUi": {
-      "dangerouslyAllowHostHeaderOriginFallback": true
+      "allowedOrigins": ["*"]
     }
   },
   "plugins": {
