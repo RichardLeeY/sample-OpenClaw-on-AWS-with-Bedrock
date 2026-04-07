@@ -292,6 +292,7 @@ Resources:
                 Action:
                   - 'ssm:PutParameter'
                   - 'ssm:GetParameter'
+                  - 'ssm:GetParametersByPath'
                 Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/openclaw/${AWS::StackName}/*'
         - PolicyName: AgentCoreAccessPolicy
           PolicyDocument:
@@ -301,6 +302,9 @@ Resources:
                 Action:
                   - 'bedrock-agentcore:InvokeAgentRuntime'
                   - 'bedrock-agentcore:GetAgentRuntime'
+                  - 'bedrock-agentcore:CreateAgentRuntime'
+                  - 'bedrock-agentcore:UpdateAgentRuntime'
+                  - 'bedrock-agentcore:ListAgentRuntimes'
                 Resource: '*'
         - PolicyName: ECRAccessPolicy
           PolicyDocument:
@@ -323,6 +327,16 @@ Resources:
                   - 'ecr:CompleteLayerUpload'
                 Resource:
                   - !GetAtt MultitenancyEcrRepository.Arn
+        - PolicyName: DynamoDBAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:*'
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/openclaw-enterprise'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/openclaw-enterprise/*'
         - PolicyName: S3WorkspacePolicy
           PolicyDocument:
             Version: '2012-10-17'
@@ -431,6 +445,7 @@ Resources:
                 Effect: Allow
                 Action:
                   - ssm:GetParameter
+                  - ssm:GetParametersByPath
                   - ssm:PutParameter
                 Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/openclaw/${AWS::StackName}/*"
               - Sid: BedrockAgentCoreRuntimeInvoke

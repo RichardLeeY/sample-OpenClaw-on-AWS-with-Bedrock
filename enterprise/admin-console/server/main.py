@@ -26,6 +26,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+import boto3
+
 import db
 import s3ops
 import auth as authmod
@@ -5027,7 +5029,9 @@ def get_guardrail_events(authorization: str = Header(default=""), limit: int = 5
     """Fetch guardrail_block audit events from DynamoDB."""
     _require_role(authorization, roles=["admin", "manager"])
     try:
-        table = boto3.resource("dynamodb", region_name=DYNAMODB_REGION).Table(DYNAMODB_TABLE)
+        _ddb_region = os.environ.get("DYNAMODB_REGION", "us-east-2")
+        _ddb_table = os.environ.get("DYNAMODB_TABLE", "openclaw-enterprise")
+        table = boto3.resource("dynamodb", region_name=_ddb_region).Table(_ddb_table)
         resp = table.query(
             IndexName="GSI1",
             KeyConditionExpression=Key("GSI1PK").eq("TYPE#audit"),
@@ -5052,7 +5056,7 @@ def list_ecr_images(authorization: str = Header(default="")):
     _require_role(authorization, roles=["admin"])
     import boto3 as _b3ecr
     ecr = _b3ecr.client("ecr", region_name=_GATEWAY_REGION)
-    account = boto3.client("sts").get_caller_identity()["Account"]
+    account = _b3ecr.client("sts").get_caller_identity()["Account"]
     result = []
     try:
         repos = ecr.describe_repositories().get("repositories", [])

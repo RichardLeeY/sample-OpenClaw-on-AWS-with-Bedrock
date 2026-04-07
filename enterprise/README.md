@@ -407,11 +407,12 @@ Creates: EC2 (gateway) · ECR (agent image) · S3 (workspaces) · IAM roles · A
 ```bash
 STACK_NAME="openclaw-multitenancy"
 REGION="us-east-1"
-DYNAMODB_REGION="us-east-2"
+DYNAMODB_REGION="us-east-1
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
 INSTANCE_ID=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION \
   --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' --output text)
+
 S3_BUCKET=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION \
   --query 'Stacks[0].Outputs[?OutputKey==`TenantWorkspaceBucketName`].OutputValue' --output text)
 ```
@@ -429,7 +430,12 @@ aws dynamodb create-table \
   --key-schema \
     AttributeName=PK,KeyType=HASH \
     AttributeName=SK,KeyType=RANGE \
-  --global-secondary-indexes '[{
+  --global-secondary-indexes '[{EXEC_RUNTIME_ID=$(aws ssm get-parameter \
+  --name "/openclaw/${STACK_NAME}/exec-runtime-id" \
+  --query Parameter.Value --output text --region $REGION 2>/dev/null)
+
+EXEC_ROLE=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION \
+  --query 'Stacks[0].Outputs[?OutputKey==`AgentContainerExecutionRoleArn`].OutputValue' --output text)
     "IndexName":"GSI1",
     "KeySchema":[
       {"AttributeName":"GSI1PK","KeyType":"HASH"},
@@ -472,17 +478,14 @@ cd ../..
 
 COPYFILE_DISABLE=1 tar czf /tmp/admin-deploy.tar.gz -C enterprise/admin-console dist server
 aws s3 cp /tmp/admin-deploy.tar.gz "s3://${S3_BUCKET}/_deploy/admin-deploy.tar.gz"
+aws s3 cp enterprise/admin-console/deploy-admin.sh "s3://${S3_BUCKET}/_deploy/deploy-admin.sh"
 
 aws ssm send-command --instance-ids $INSTANCE_ID --region $REGION \
   --document-name AWS-RunShellScript \
   --parameters "{\"commands\":[
-    \"python3 -m venv /opt/admin-venv\",
-    \"/opt/admin-venv/bin/pip install fastapi uvicorn boto3 requests python-multipart anthropic\",
-    \"aws s3 cp s3://${S3_BUCKET}/_deploy/admin-deploy.tar.gz /tmp/admin-deploy.tar.gz --region $REGION\",
-    \"mkdir -p /opt/admin-console && tar xzf /tmp/admin-deploy.tar.gz -C /opt/admin-console\",
-    \"chown -R ubuntu:ubuntu /opt/admin-console /opt/admin-venv\",
-    \"printf '[Unit]\\\\nDescription=OpenClaw Admin Console\\\\nAfter=network.target\\\\n[Service]\\\\nType=simple\\\\nUser=ubuntu\\\\nWorkingDirectory=/opt/admin-console/server\\\\nEnvironmentFile=-/etc/openclaw/env\\\\nExecStart=/opt/admin-venv/bin/python main.py\\\\nRestart=always\\\\nRestartSec=5\\\\n[Install]\\\\nWantedBy=multi-user.target' > /etc/systemd/system/openclaw-admin.service\",
-    \"systemctl daemon-reload && systemctl enable openclaw-admin && systemctl start openclaw-admin\"
+    \"aws s3 cp s3://${S3_BUCKET}/_deploy/deploy-admin.sh /tmp/deploy-admin.sh --region $REGION\",
+    \"chmod +x /tmp/deploy-admin.sh\",
+    \"bash /tmp/deploy-admin.sh ${S3_BUCKET}\"
   ]}"
 ```
 
@@ -500,9 +503,15 @@ aws ssm put-parameter --name "/openclaw/${STACK_NAME}/jwt-secret" \
 If your stack has SSM VPC endpoints (created when `CreateVPCEndpoints=true`), the always-on ECS Fargate tasks need permission to reach them. This is a one-time manual step because the SSM endpoint security group is not managed by this stack's CloudFormation template.
 
 ```bash
-# Get the SSM endpoint security group
+# Get the VPC ID from the CloudFormation stack
+VPC_ID=$(aws cloudformation describe-stack-resource --stack-name $STACK_NAME --region $REGION \
+  --logical-resource-id OpenClawVPC \
+  --query 'StackResourceDetail.PhysicalResourceId' --output text)
+
+# Get the SSM endpoint security group (filtered by stack VPC)
 SSM_ENDPOINT_SG=$(aws ec2 describe-vpc-endpoints --region $REGION \
   --filters "Name=service-name,Values=com.amazonaws.${REGION}.ssm" \
+             "Name=vpc-id,Values=${VPC_ID}" \
   --query 'VpcEndpoints[0].Groups[0].GroupId' --output text)
 
 ECS_TASK_SG=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --region $REGION \

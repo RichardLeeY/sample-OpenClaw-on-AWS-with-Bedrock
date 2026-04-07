@@ -289,6 +289,16 @@ Resources:
                     - 'bedrock-agentcore:GetRuntimeEndpoint'
                   Resource: '*'
                 - !Ref AWS::NoValue
+        - PolicyName: DynamoDBAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:*'
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/openclaw-enterprise'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/openclaw-enterprise/*'
         - PolicyName: ECRAccessPolicy
           PolicyDocument:
             Version: '2012-10-17'
