@@ -5,16 +5,16 @@ import { Bot, LogIn, AlertCircle } from 'lucide-react';
 import ClawForgeLogo from '../components/ClawForgeLogo';
 
 const DEMO_ACCOUNTS = [
-  { id: 'emp-jiade',  name: 'JiaDe Wang',   role: 'Admin',     dept: 'Engineering', desc: 'Admin + SA Agent · Discord · cross-session memory ✨' },
-  { id: 'emp-wjd',    name: 'WJD',          role: 'Executive', dept: 'Executive',   desc: 'No restrictions · All tools · Full access 🔓' },
-  { id: 'emp-dickson',name: 'Dickson',      role: 'Executive', dept: 'Executive',   desc: 'Always-on ECS · EFS workspace · No restrictions 🔓' },
-  { id: 'emp-ada',    name: 'Ada',          role: 'Executive', dept: 'Executive',   desc: 'No restrictions · All tools · Full access 🔓' },
-  { id: 'emp-peter',  name: 'Peter Wu',     role: 'Manager',   dept: 'Engineering', desc: 'Executive Agent · Discord · memory ✨' },
-  { id: 'emp-alex',   name: 'Alex Rivera',  role: 'Manager',   dept: 'Product',     desc: 'Product department manager view' },
-  { id: 'emp-mike',   name: 'Mike Johnson', role: 'Manager',   dept: 'Sales',       desc: 'Sales dept manager · CRM tools' },
-  { id: 'emp-ryan',   name: 'Ryan Park',    role: 'Employee',  dept: 'Engineering', desc: 'SDE Agent · shell + code · Slack' },
-  { id: 'emp-carol',  name: 'Carol Zhang',  role: 'Employee',  dept: 'Finance',     desc: 'Finance Agent · Excel/SAP · Telegram' },
-  { id: 'emp-david',  name: 'David Park',   role: 'Employee',  dept: 'Finance',     desc: 'Finance Agent · Excel/SAP tools · memory ✨' },
+  { id: 'emp-jiade',  name: 'JiaDe Wang',    role: 'Admin',    dept: 'Engineering', desc: 'Admin · Solutions Architect · full platform access' },
+  { id: 'emp-chris',  name: 'Chris Morgan',  role: 'Admin',    dept: 'Platform',    desc: 'Admin · DevOps Engineer' },
+  { id: 'emp-peter',  name: 'Peter Wu',      role: 'Employee', dept: 'Engineering', desc: 'Executive Agent · all tools' },
+  { id: 'emp-alex',   name: 'Alex Rivera',   role: 'Manager',  dept: 'Product',     desc: 'Product Manager · Jira · research' },
+  { id: 'emp-mike',   name: 'Mike Johnson',  role: 'Manager',  dept: 'Sales',       desc: 'Account Executive · CRM · WhatsApp' },
+  { id: 'emp-jenny',  name: 'Jenny Liu',     role: 'Manager',  dept: 'HR',          desc: 'HR Specialist · email · calendar' },
+  { id: 'emp-ryan',   name: 'Ryan Park',     role: 'Employee', dept: 'Engineering', desc: 'Software Engineer · shell · code · GitHub' },
+  { id: 'emp-carol',  name: 'Carol Zhang',   role: 'Employee', dept: 'Finance',     desc: 'Finance Analyst · Excel · SAP' },
+  { id: 'emp-emma',   name: 'Emma Chen',     role: 'Employee', dept: 'Customer',    desc: 'Customer Success · CRM · Slack' },
+  { id: 'emp-rachel', name: 'Rachel Li',     role: 'Employee', dept: 'Legal',       desc: 'Legal Counsel · research · file' },
 ];
 
 export default function Login() {
