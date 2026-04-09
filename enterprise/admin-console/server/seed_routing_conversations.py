@@ -1,5 +1,6 @@
 """Seed routing rules and session conversations into DynamoDB."""
 import argparse
+import os
 import boto3
 
 ORG = "ORG#acme"

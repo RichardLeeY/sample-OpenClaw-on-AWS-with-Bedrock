@@ -1,5 +1,6 @@
 """Add role field to existing employees in DynamoDB."""
 import argparse
+import os
 import boto3
 
 ORG = "ORG#acme"

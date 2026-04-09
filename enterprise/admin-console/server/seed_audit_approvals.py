@@ -1,5 +1,6 @@
 """Seed DynamoDB with audit entries and approvals."""
 import argparse
+import os
 import boto3
 
 ORG = "ORG#acme"

@@ -1,6 +1,7 @@
 """Seed DynamoDB with usage metrics, session history, and employee activity data.
 Replaces all hardcoded mock data in the application."""
 import argparse
+import os
 import time
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal

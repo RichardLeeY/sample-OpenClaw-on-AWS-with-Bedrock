@@ -1,5 +1,6 @@
 """Seed DynamoDB with knowledge base metadata."""
 import argparse
+import os
 import boto3
 
 ORG = "ORG#acme"

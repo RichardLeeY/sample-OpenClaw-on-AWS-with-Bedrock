@@ -5,6 +5,7 @@ Single-table design: PK/SK pattern from PRD §15.
 Usage: python seed_dynamodb.py [--region us-east-1] [--table openclaw]
 """
 import argparse
+import os
 import json
 import time
 import boto3

@@ -1,5 +1,6 @@
 """Seed DynamoDB with settings (model config, security policy)."""
 import argparse
+import os
 import json
 import boto3
 
