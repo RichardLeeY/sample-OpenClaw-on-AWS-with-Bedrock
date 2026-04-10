@@ -326,6 +326,44 @@ Built on top of the Multi-Tenant AgentCore Runtime, the Enterprise platform adds
 
 **[→ Enterprise Platform Guide](README_ENTERPRISE.md)** · **[→ Enterprise Roadmap](enterprise/ROADMAP.md)**
 
+### EKS (Kubernetes) — For Container-Native Deployments
+
+> Run the Enterprise Admin Console and OpenClaw agents on Amazon EKS. Supports **AWS Global** and **AWS China** regions. Uses the OpenClaw Operator (Helm) to manage agent pods via `OpenClawInstance` CRDs.
+
+**Quick start (Terraform — full stack):**
+
+```bash
+# 1. Build images (mirrors to China ECR if cn- region)
+bash eks/scripts/build-and-mirror.sh --region us-west-2 --name openclaw-prod
+
+# 2. Deploy VPC + EKS + Operator + Admin Console + Ingress
+cd eks/terraform && terraform apply \
+  -var="name=openclaw-prod" \
+  -var="enable_admin_console=true" \
+  -var="enable_alb_controller=true" \
+  -var="admin_password=YOUR_PASSWORD"
+```
+
+**Quick start (existing cluster):**
+
+```bash
+cd enterprise/admin-console
+bash deploy-eks.sh --cluster YOUR_CLUSTER --region us-west-2 --password YOUR_PASSWORD
+```
+
+| Feature | Details |
+|---------|---------|
+| **Full Terraform stack** | VPC, EKS, EFS, ALB Controller, Operator, Admin Console — one `terraform apply` |
+| **Helm chart packaging** | ServiceAccount, RBAC, Deployment, Service, Ingress — `enterprise/admin-console/chart/` |
+| **Internet access** | ALB Ingress (enabled by default in Terraform), custom domain + HTTPS via ACM |
+| **Three runtimes** | Serverless (AgentCore) + ECS (Fargate) + **EKS (CRD-managed pods)** |
+| **Operator-managed** | OpenClaw Operator watches CRDs → StatefulSet + Service + PVC + ConfigMap |
+| **Deploy UI** | Agent Factory → EKS → Deploy Agent modal (model, resources, storage, sidecars) |
+| **China region support** | `build-and-mirror.sh` mirrors images to China ECR, `globalRegistry` CRD override |
+| **Integration test** | `eks/scripts/integration-test.sh` — validates full deploy/reload/stop cycle |
+
+**[→ EKS Deployment Guide (EN)](docs/DEPLOYMENT_EKS.md)** · **[→ EKS 部署指南 (中文)](docs/DEPLOYMENT_EKS_CN.md)**
+
 ### macOS (Apple Silicon) — For iOS/macOS Development
 
 | Type | Chip | RAM | Monthly |
