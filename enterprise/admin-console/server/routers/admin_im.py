@@ -10,6 +10,8 @@ Endpoints:
 
 import os
 import json
+import time as _time
+import subprocess
 
 import boto3
 
@@ -20,6 +22,13 @@ from shared import require_role, ssm_client, GATEWAY_REGION, STACK_NAME
 
 router = APIRouter(tags=["admin-im"])
 
+_OPENCLAW_BIN = "/home/ubuntu/.nvm/versions/node/v22.22.2/bin/openclaw"
+_OPENCLAW_ENV = "/home/ubuntu/.nvm/versions/node/v22.22.2/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Simple TTL cache for channel status (avoid repeated LLM calls)
+_channel_cache: dict = {"data": [], "ts": 0}
+_CACHE_TTL = 60  # seconds
+
 
 # Import mapping helpers from main at call time to avoid circular imports
 def _mapping_prefix():
@@ -28,50 +37,64 @@ def _mapping_prefix():
 
 
 def _run_openclaw_channels() -> list:
-    """Get live channel status from openclaw channels list CLI."""
-    import subprocess as _sp
-    openclaw_bin = "/home/ubuntu/.nvm/versions/node/v22.22.1/bin/openclaw"
-    env_path = "/home/ubuntu/.nvm/versions/node/v22.22.1/bin:/usr/local/bin:/usr/bin:/bin"
+    """Run openclaw channels status --probe and use LLM to parse into structured JSON.
+    Returns: [{"channel": "feishu", "status": "connected"|"configured"|"not_connected",
+               "protocol": "webhook"|"websocket"|"unknown"}, ...]
+    Results are cached for 60s to avoid repeated LLM calls."""
+    now = _time.time()
+    if _channel_cache["data"] and (now - _channel_cache["ts"]) < _CACHE_TTL:
+        return _channel_cache["data"]
+
     try:
-        result = _sp.run(
-            ["sudo", "-u", "ubuntu", "env", f"PATH={env_path}", "HOME=/home/ubuntu",
-             openclaw_bin, "channels", "list", "--json"],
-            capture_output=True, text=True, timeout=10,
+        result = subprocess.run(
+            ["sudo", "-u", "ubuntu", "env", f"PATH={_OPENCLAW_ENV}", "HOME=/home/ubuntu",
+             _OPENCLAW_BIN, "channels", "status", "--probe"],
+            capture_output=True, text=True, timeout=30,
         )
-        if result.stdout:
-            raw = json.loads(result.stdout)
-            channels = []
-            for ch_type, accounts in raw.get("chat", {}).items():
-                for account in accounts:
-                    channels.append({"channel": ch_type, "account": account, "type": "chat"})
+        stdout = result.stdout.strip()
+        if not stdout:
+            return []
+
+        bedrock = boto3.client("bedrock-runtime", region_name=GATEWAY_REGION)
+        resp = bedrock.converse(
+            modelId="us.amazon.nova-lite-v1:0",
+            messages=[{
+                "role": "user",
+                "content": [{"text": f"""Parse this CLI output and return ONLY a JSON array. No explanation, no markdown fences.
+Only parse channel status lines (starting with "- ") after "Checking channel status" — ignore plugin registration logs, warnings, and tips.
+Each element: {{"channel": "<name>", "status": "connected"|"configured"|"not_connected", "protocol": "webhook"|"websocket"|"unknown"}}
+
+Rules for channel name:
+- Lowercase, strip the word "default" and any extra whitespace (e.g. "Feishu default" -> "feishu", "Telegram default" -> "telegram")
+
+Rules for status:
+- "connected" = running + works (fully operational)
+- "configured" = configured but not linked, or stopped
+- "not_connected" = not configured, or error states
+
+Rules for protocol:
+- feishu -> "webhook"
+- lark -> "websocket"
+- telegram, discord, whatsapp -> "webhook"
+- anything else -> "unknown"
+
+Output to parse:
+{stdout}"""}],
+            }],
+            inferenceConfig={"maxTokens": 256, "temperature": 0},
+        )
+
+        text = resp["output"]["message"]["content"][0]["text"]
+        start = text.find("[")
+        end = text.rfind("]") + 1
+        if start != -1 and end > start:
+            channels = json.loads(text[start:end])
+            _channel_cache["data"] = channels
+            _channel_cache["ts"] = now
             return channels
-    except Exception:
-        pass
-    # Fallback: parse openclaw channels list text output
-    try:
-        result = _sp.run(
-            ["sudo", "-u", "ubuntu", "env", f"PATH={env_path}", "HOME=/home/ubuntu",
-             openclaw_bin, "channels", "list"],
-            capture_output=True, text=True, timeout=10,
-        )
-        channels = []
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("- ") and "default" in line:
-                parts = line[2:].split()
-                ch_type = parts[0].lower() if parts else "unknown"
-                configured = "configured" in line
-                linked = "not linked" not in line
-                channels.append({
-                    "channel": ch_type,
-                    "account": "default",
-                    "configured": configured,
-                    "linked": linked,
-                    "raw": line,
-                })
-        return channels
-    except Exception:
-        return []
+    except Exception as e:
+        print(f"[channel-parse] Error: {e}")
+    return []
 
 
 def _list_user_mappings() -> list:
@@ -190,7 +213,7 @@ def get_im_channels(authorization: str = Header(default="")):
     except Exception:
         pass
 
-    # Get live Gateway channel status
+    # Get live Gateway channel status (LLM-parsed)
     gateway_channels = _run_openclaw_channels()
 
     # Build enriched channel list
@@ -210,18 +233,12 @@ def get_im_channels(authorization: str = Header(default="")):
     result = []
     for ch in all_channels:
         gw = gw_by_channel.get(ch["id"], {})
-        configured = bool(gw) and gw.get("configured", False)
-        linked = bool(gw) and gw.get("linked", False)
-        if gw and "raw" not in gw:
-            configured = True
-            linked = True
-        status = "connected" if (configured and linked) else \
-                 "configured" if configured else "not_connected"
+        status = gw.get("status", "not_connected") if gw else "not_connected"
         result.append({
             **ch,
             "status": status,
+            "protocol": gw.get("protocol", "unknown") if gw else "unknown",
             "connectedEmployees": channel_counts.get(ch["id"], 0),
-            "gatewayInfo": gw.get("raw", "") if gw else "",
         })
     return result
 
@@ -253,38 +270,22 @@ def im_binding_check(channel: str, channelUserId: str):
 
 @router.post("/api/v1/admin/im-channels/{channel}/test")
 def test_im_channel(channel: str, authorization: str = Header(default="")):
-    """Test bot connection for a channel by asking OpenClaw if it has the channel configured.
-    OpenClaw manages bot credentials — we don't store them separately.
-    Returns {ok, botName, error}."""
+    """Test bot connection by checking LLM-parsed channel status.
+    Forces a fresh probe (bypasses cache). Returns {ok, botName, protocol, error}."""
     require_role(authorization, roles=["admin"])
-    try:
-        import subprocess as _sp
-        openclaw_bin = "/home/ubuntu/.nvm/versions/node/v22.22.1/bin/openclaw"
-        env_path = "/home/ubuntu/.nvm/versions/node/v22.22.1/bin:/usr/local/bin:/usr/bin:/bin"
-        result = _sp.run(
-            ["sudo", "-u", "ubuntu", "env", f"PATH={env_path}", "HOME=/home/ubuntu",
-             openclaw_bin, "channels", "list", "--json"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.stdout:
-            import json as _json
-            # openclaw prints plugin registration logs (with ANSI codes) before the JSON blob.
-            # Find the first '{' to skip the preamble, same pattern used in server.py.
-            stdout = result.stdout
-            json_start = stdout.find('{')
-            if json_start == -1:
-                return {"ok": False, "error": "Unexpected openclaw output — no JSON found."}
-            raw = _json.loads(stdout[json_start:])
-            configured = raw.get("chat", {})
-            # channel name in openclaw may differ: "feishu" -> "feishu", "discord" -> "discord"
-            channel_key = channel.lower()
-            if channel_key in configured and configured[channel_key]:
-                accounts = configured[channel_key]
-                return {"ok": True, "botName": f"{channel} ({', '.join(accounts)})"}
+    # Clear cache to force a fresh probe
+    _channel_cache["ts"] = 0
+    channels = _run_openclaw_channels()
+    ch_key = channel.lower()
+    for ch in channels:
+        if ch.get("channel") == ch_key:
+            if ch["status"] == "connected":
+                return {"ok": True, "botName": ch_key, "protocol": ch.get("protocol", "unknown")}
             return {
                 "ok": False,
-                "error": f"{channel.capitalize()} bot not configured in OpenClaw. Open Gateway UI (port 18789) → Channels → Add {channel.capitalize()}.",
+                "error": f"{channel.capitalize()} bot status: {ch['status']}. Open Gateway UI (port 18789) → Channels → configure {channel.capitalize()}.",
             }
-        return {"ok": False, "error": "Could not reach OpenClaw CLI. Ensure openclaw gateway is running."}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    return {
+        "ok": False,
+        "error": f"{channel.capitalize()} bot not configured in OpenClaw. Open Gateway UI (port 18789) → Channels → Add {channel.capitalize()}.",
+    }

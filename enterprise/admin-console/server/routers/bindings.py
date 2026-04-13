@@ -118,15 +118,17 @@ def _send_im_notification(channel: str, channel_user_id: str, message: str) -> N
             app_id = os.environ.get("FEISHU_APP_ID", "")
             app_secret = os.environ.get("FEISHU_APP_SECRET", "")
             if app_id and app_secret:
+                org_cfg = db.get_config("org-sync") or {}
+                base = "open.larksuite.com" if org_cfg.get("feishuVariant") == "lark" else "open.feishu.cn"
                 # Get tenant access token
                 auth = _req.post(
-                    "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+                    f"https://{base}/open-apis/auth/v3/tenant_access_token/internal",
                     json={"app_id": app_id, "app_secret": app_secret}, timeout=5,
                 ).json()
                 access_token = auth.get("tenant_access_token", "")
                 if access_token:
                     _req.post(
-                        "https://open.feishu.cn/open-apis/message/v4/send/",
+                        f"https://{base}/open-apis/message/v4/send/",
                         headers={"Authorization": f"Bearer {access_token}"},
                         json={
                             "user_id": channel_user_id,

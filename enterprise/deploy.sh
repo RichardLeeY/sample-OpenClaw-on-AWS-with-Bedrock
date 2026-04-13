@@ -1,3 +1,4 @@
+set -x
 #!/bin/bash
 # =============================================================================
 # OpenClaw Enterprise — One-Command Deploy
@@ -619,3 +620,4 @@ echo "       --parameters 'portNumber=18789,localPortNumber=18789'"
 echo "     → Open http://localhost:18789 → Channels → Add bot"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+set +x

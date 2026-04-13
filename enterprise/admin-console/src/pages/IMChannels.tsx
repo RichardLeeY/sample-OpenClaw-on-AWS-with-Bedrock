@@ -134,6 +134,42 @@ function ConnectionRowAction({ onRevoke, revoking }: {
   );
 }
 
+function FeishuVariantSelector() {
+  const qc = useQueryClient();
+  const { data: orgSync } = useQuery<{ feishuVariant?: string }>({
+    queryKey: ['org-sync-config'],
+    queryFn: () => api.get('/settings/org-sync'),
+  });
+  const variant = orgSync?.feishuVariant || 'feishu';
+  const saveMutation = useMutation({
+    mutationFn: (v: string) => api.put('/settings/org-sync', { feishuVariant: v }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['org-sync-config'] }),
+  });
+
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-dark-border/50 bg-surface-dim px-4 py-2.5">
+      <span className="text-xs font-medium text-text-secondary">API Region:</span>
+      <div className="flex rounded-lg border border-dark-border/50 overflow-hidden">
+        {([['feishu', 'Feishu (China)'], ['lark', 'Lark (International)']] as const).map(([v, label]) => (
+          <button key={v}
+            onClick={() => saveMutation.mutate(v)}
+            className={`px-3 py-1 text-xs font-medium transition-colors ${
+              variant === v
+                ? 'bg-primary/20 text-primary-light border-primary/30'
+                : 'text-text-muted hover:text-text-secondary hover:bg-dark-hover/30'
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {saveMutation.isPending && <RefreshCw size={12} className="animate-spin text-text-muted" />}
+      <span className="text-[10px] text-text-muted font-mono">
+        {variant === 'lark' ? 'open.larksuite.com' : 'open.feishu.cn'}
+      </span>
+    </div>
+  );
+}
+
 function ChannelConnections({ channel, connections, channelStatus, onRevoke }: {
   channel: string; connections: ChannelConnection[];
   channelStatus?: IMChannel; onRevoke: (channelUserId: string) => void;
@@ -223,6 +259,9 @@ function ChannelConnections({ channel, connections, channelStatus, onRevoke }: {
           </div>
         </div>
       </div>
+
+      {/* Feishu / Lark variant selector */}
+      {channel === 'feishu' && <FeishuVariantSelector />}
 
       {/* Layer 2: Architecture flow + employee onboarding (shown when bot is active) */}
       {isActive && (

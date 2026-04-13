@@ -45,6 +45,19 @@ apt-get install -y python3.12-venv 2>/dev/null || true
 # Upgrade boto3/botocore for system python (tenant_router uses system python)
 pip3 install --break-system-packages --upgrade boto3 botocore 2>/dev/null || true
 
+# ── Phase 1b: Ensure NVM is in ubuntu's .profile for non-interactive shells ──
+
+echo ">>> Phase 1b: Ensuring NVM is in ubuntu .profile..."
+su - ubuntu -c '
+if ! grep -q NVM_DIR ~/.profile; then
+    echo "export NVM_DIR=\"\$HOME/.nvm\"" >> ~/.profile
+    echo "[ -s \"\$NVM_DIR/nvm.sh\" ] && . \"\$NVM_DIR/nvm.sh\"" >> ~/.profile
+    echo "  NVM added to .profile"
+else
+    echo "  NVM already in .profile"
+fi
+'
+
 # ── Phase 2: Build admin console frontend ────────────────────────────────────
 
 echo ">>> Phase 2: Building admin console frontend..."

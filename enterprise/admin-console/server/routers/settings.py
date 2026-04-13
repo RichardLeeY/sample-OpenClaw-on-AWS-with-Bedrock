@@ -234,6 +234,7 @@ def get_org_sync_config(authorization: str = Header(default="")):
         "lastSync": cfg.get("lastSync"),
         "lastResult": cfg.get("lastResult"),
         "status": cfg.get("status", "not_configured"),
+        "feishuVariant": cfg.get("feishuVariant", "feishu"),
     }
 
 
@@ -243,7 +244,7 @@ def update_org_sync_config(body: dict, authorization: str = Header(default="")):
     require_role(authorization, roles=["admin"])
     cfg = db.get_config("org-sync") or {}
     cfg.update({k: v for k, v in body.items()
-                if k in ("source", "enabled", "interval", "apiKey", "appId", "appSecret", "tenantKey")})
+                if k in ("source", "enabled", "interval", "apiKey", "appId", "appSecret", "tenantKey", "feishuVariant")})
     db.set_config("org-sync", cfg)
     return {"saved": True}
 
@@ -341,17 +342,29 @@ def apply_org_sync(body: dict, authorization: str = Header(default="")):
     return {"applied": applied}
 
 
+def _feishu_api_base(cfg: dict) -> str:
+    """Return the Feishu/Lark Open API base domain based on config variant."""
+    return "open.larksuite.com" if cfg.get("feishuVariant") == "lark" else "open.feishu.cn"
+
+
+def _feishu_applink_base(cfg: dict) -> str:
+    """Return the Feishu/Lark applink domain based on config variant."""
+    return "applink.larksuite.com" if cfg.get("feishuVariant") == "lark" else "applink.feishu.cn"
+
+
 def _fetch_feishu_org(cfg: dict):
-    """Fetch users and departments from Feishu API."""
+    """Fetch users and departments from Feishu/Lark API."""
     import requests as _req
     app_id = cfg.get("appId", "")
     app_secret = cfg.get("appSecret", "")
     if not app_id or not app_secret:
         raise ValueError("Feishu appId and appSecret required")
 
+    base = _feishu_api_base(cfg)
+
     # Get tenant_access_token
     token_resp = _req.post(
-        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        f"https://{base}/open-apis/auth/v3/tenant_access_token/internal",
         json={"app_id": app_id, "app_secret": app_secret}, timeout=10
     ).json()
     token = token_resp.get("tenant_access_token", "")
@@ -361,7 +374,7 @@ def _fetch_feishu_org(cfg: dict):
     headers = {"Authorization": f"Bearer {token}"}
     # Fetch departments
     depts_resp = _req.get(
-        "https://open.feishu.cn/open-apis/contact/v3/departments",
+        f"https://{base}/open-apis/contact/v3/departments",
         headers=headers, params={"page_size": 200}, timeout=10).json()
     depts = [{"id": f"dept-{d['open_department_id']}", "name": d["name"],
                "parentId": d.get("parent_open_department_id")}
@@ -369,7 +382,7 @@ def _fetch_feishu_org(cfg: dict):
 
     # Fetch users
     users_resp = _req.get(
-        "https://open.feishu.cn/open-apis/contact/v3/users",
+        f"https://{base}/open-apis/contact/v3/users",
         headers=headers, params={"page_size": 200}, timeout=10).json()
     users = [{"id": f"emp-{u['open_id']}", "name": u["name"],
                "departmentId": f"dept-{u.get('open_department_ids', [''])[0]}",

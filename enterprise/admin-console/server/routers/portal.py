@@ -42,9 +42,9 @@ _CHANNEL_BOT_INFO = {
     },
     "feishu": {
         "botUsername": os.environ.get("FEISHU_BOT_NAME", "ACME Agent"),
-        # Feishu deep link opens the bot chat directly (doesn't support token param)
-        # User scans QR -> bot chat opens -> then manually sends /start TOKEN
-        "deepLinkTemplate": "https://applink.feishu.cn/client/bot/open?appId={appId}",
+        # Deep link domain is resolved at request time based on feishuVariant config
+        # (feishu -> applink.feishu.cn, lark -> applink.larksuite.com)
+        "deepLinkTemplate": None,  # built dynamically in pair_start
         "feishuAppId": os.environ.get("FEISHU_APP_ID", "cli_a94cb611da399cdd"),
         "label": "Feishu / Lark",
     },
@@ -87,52 +87,8 @@ class PortalRequestCreate(BaseModel):
     reason: str = ""
 
 
-# ── Local helper: run openclaw channels CLI ──────────────────────────────
-def _run_openclaw_channels() -> list:
-    """Get live channel status from openclaw channels list CLI."""
-    import subprocess as _sp
-    openclaw_bin = "/home/ubuntu/.nvm/versions/node/v22.22.1/bin/openclaw"
-    env_path = "/home/ubuntu/.nvm/versions/node/v22.22.1/bin:/usr/local/bin:/usr/bin:/bin"
-    try:
-        result = _sp.run(
-            ["sudo", "-u", "ubuntu", "env", f"PATH={env_path}", "HOME=/home/ubuntu",
-             openclaw_bin, "channels", "list", "--json"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.stdout:
-            raw = json.loads(result.stdout)
-            channels = []
-            for ch_type, accounts in raw.get("chat", {}).items():
-                for account in accounts:
-                    channels.append({"channel": ch_type, "account": account, "type": "chat"})
-            return channels
-    except Exception:
-        pass
-    # Fallback: parse openclaw channels list text output
-    try:
-        result = _sp.run(
-            ["sudo", "-u", "ubuntu", "env", f"PATH={env_path}", "HOME=/home/ubuntu",
-             openclaw_bin, "channels", "list"],
-            capture_output=True, text=True, timeout=10,
-        )
-        channels = []
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("- ") and "default" in line:
-                parts = line[2:].split()
-                ch_type = parts[0].lower() if parts else "unknown"
-                configured = "configured" in line
-                linked = "not linked" not in line
-                channels.append({
-                    "channel": ch_type,
-                    "account": "default",
-                    "configured": configured,
-                    "linked": linked,
-                    "raw": line,
-                })
-        return channels
-    except Exception:
-        return []
+# Reuse LLM-based channel parser from admin_im (single source of truth)
+from routers.admin_im import _run_openclaw_channels
 
 
 # ── Helper: find channel user id (reverse lookup) ───────────────────────
@@ -207,10 +163,15 @@ def pair_start(body: PairStartRequest, authorization: str = Header(default="")):
     bot_info = _CHANNEL_BOT_INFO.get(body.channel, {})
     bot_username = bot_info.get("botUsername", "")
     template = bot_info.get("deepLinkTemplate")
-    # Feishu uses appId in the deep link, not bot username or token
-    if template and "{appId}" in template:
+    # Feishu/Lark: build deep link dynamically based on feishuVariant config
+    if body.channel == "feishu":
         app_id = bot_info.get("feishuAppId", "")
-        deep_link = template.format(appId=app_id) if app_id else None
+        if app_id:
+            org_cfg = db.get_config("org-sync") or {}
+            applink_base = "applink.larksuite.com" if org_cfg.get("feishuVariant") == "lark" else "applink.feishu.cn"
+            deep_link = f"https://{applink_base}/client/bot/open?appId={app_id}"
+        else:
+            deep_link = None
     elif template:
         deep_link = template.format(bot=bot_username, token=token) if template else None
     else:
@@ -233,9 +194,10 @@ def portal_im_channel_status(authorization: str = Header(default="")):
     channels = _run_openclaw_channels()
     configured = set()
     for ch in channels:
-        name = (ch.get("channel") or ch.get("id", "")).lower()
-        if name:
-            configured.add(name)
+        if ch.get("status") != "not_connected":
+            name = ch.get("channel", "").lower()
+            if name:
+                configured.add(name)
     return {"configured": sorted(configured)}
 
 
