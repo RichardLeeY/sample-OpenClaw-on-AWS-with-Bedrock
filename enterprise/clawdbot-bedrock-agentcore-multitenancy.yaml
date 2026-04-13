@@ -703,6 +703,22 @@ Resources:
 
           export DEBIAN_FRONTEND=noninteractive
 
+          # Wait for any background apt/dpkg processes (unattended-upgrades on fresh AMI)
+          wait_for_apt() {
+            local max_wait=300
+            local waited=0
+            while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+              echo "Waiting for dpkg/apt lock (${!waited}s elapsed)..."
+              sleep 5
+              waited=$((waited + 5))
+              if [ $waited -ge $max_wait ]; then
+                echo "WARNING: apt lock wait exceeded ${!max_wait}s, proceeding anyway"
+                break
+              fi
+            done
+          }
+
+          wait_for_apt
           apt-get update
           apt-get upgrade -y
           apt-get install -y unzip curl jq
@@ -724,6 +740,7 @@ Resources:
           curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
           chmod a+r /etc/apt/keyrings/docker.asc
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+          wait_for_apt
           apt-get update
           apt-get install -y docker-ce docker-ce-cli containerd.io
           systemctl enable docker
