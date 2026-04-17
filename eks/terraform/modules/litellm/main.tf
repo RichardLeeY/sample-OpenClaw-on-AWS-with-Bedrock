@@ -145,7 +145,7 @@ resource "helm_release" "litellm" {
   # ------------------------------------------------------------------
   set_sensitive {
     name  = "envVars.LITELLM_MASTER_KEY"
-    value = random_password.master_key.result
+    value = "sk-${random_password.master_key.result}"
   }
 
   # ------------------------------------------------------------------
@@ -158,7 +158,7 @@ resource "helm_release" "litellm" {
 
   set {
     name  = "envVars.STORE_MODEL_IN_DB"
-    value = "True"
+    value = "False"  # Always read models from static config, not DB
   }
 
   set {
