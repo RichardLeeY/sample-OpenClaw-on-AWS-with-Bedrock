@@ -181,11 +181,11 @@ resource "helm_release" "litellm" {
     value = var.enable_db ? "True" : "False"
   }
 
-  dynamic "set_sensitive" {
+  dynamic "set" {
     for_each = var.enable_db ? [1] : []
     content {
-      name  = "envVars.DATABASE_PASSWORD"
-      value = random_password.db_password[0].result
+      name  = "db.secret.name"
+      value = kubernetes_secret_v1.litellm_db_creds[0].metadata[0].name
     }
   }
 
@@ -226,6 +226,25 @@ resource "helm_release" "litellm" {
   set {
     name  = "serviceMonitor.enabled"
     value = "false"
+  }
+}
+
+################################################################################
+# DB credentials Secret (only when enable_db = true)
+# Chart expects Secret with 'username' + 'password' keys (db.secret.name)
+################################################################################
+
+resource "kubernetes_secret_v1" "litellm_db_creds" {
+  count = var.enable_db ? 1 : 0
+
+  metadata {
+    name      = "litellm-db-creds"
+    namespace = kubernetes_namespace_v1.litellm.metadata[0].name
+  }
+
+  data = {
+    username = "litellm"
+    password = random_password.db_password[0].result
   }
 }
 
