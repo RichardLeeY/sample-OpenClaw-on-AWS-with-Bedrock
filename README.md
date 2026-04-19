@@ -199,7 +199,7 @@ Switch models with one CloudFormation parameter — no code changes:
 | **Total (all options)** | **$96-101** | |
 | **Total (minimal)** | **$63-67** | VPCe + CW off |
 
-> Use `t4g.medium` ($24/mo) to bring total down further. Memory-optimized instances (r7g/r6g) recommended for stability.
+> Use `t4g.medium` ($24/mo) or `r7g.medium` ($30/mo, 8GB RAM) to reduce cost.
 
 **Always included at no extra cost:**
 - 2GB swap (prevents OOM crashes)
