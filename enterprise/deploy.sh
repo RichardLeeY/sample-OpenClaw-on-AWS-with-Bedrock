@@ -151,6 +151,14 @@ CFN_PARAMS="$CFN_PARAMS ParameterKey=CreateVPCEndpoints,ParameterValue=${CREATE_
 CFN_PARAMS="$CFN_PARAMS ParameterKey=ExistingVpcId,ParameterValue=${EXISTING_VPC_ID}"
 CFN_PARAMS="$CFN_PARAMS ParameterKey=ExistingSubnetId,ParameterValue=${EXISTING_SUBNET_ID}"
 
+# Upload template to S3 (template > 51200 bytes, too large for --template-body)
+CFN_TEMPLATE="$SCRIPT_DIR/clawdbot-bedrock-agentcore-multitenancy.yaml"
+CFN_S3_BUCKET="openclaw-cfn-templates-${ACCOUNT_ID}-${REGION}"
+aws s3 mb "s3://${CFN_S3_BUCKET}" --region "$REGION" 2>/dev/null || true
+aws s3 cp "$CFN_TEMPLATE" "s3://${CFN_S3_BUCKET}/${STACK_NAME}-template.yaml" --region "$REGION" --quiet
+CFN_TEMPLATE_URL="https://${CFN_S3_BUCKET}.s3.${REGION}.amazonaws.com/${STACK_NAME}-template.yaml"
+info "  Template uploaded to $CFN_S3_BUCKET"
+
 # Try to create; if stack exists, do an update instead
 STACK_STATUS=$(aws cloudformation describe-stacks \
   --stack-name "$STACK_NAME" --region "$REGION" \
@@ -160,7 +168,7 @@ if [ "$STACK_STATUS" = "DOES_NOT_EXIST" ]; then
   info "  Creating new stack (takes ~8 min)..."
   aws cloudformation create-stack \
     --stack-name "$STACK_NAME" \
-    --template-body file://"$SCRIPT_DIR/clawdbot-bedrock-agentcore-multitenancy.yaml" \
+    --template-url "$CFN_TEMPLATE_URL" \
     --capabilities CAPABILITY_NAMED_IAM \
     --region "$REGION" \
     --parameters $CFN_PARAMS
@@ -170,7 +178,7 @@ else
   info "  Stack exists ($STACK_STATUS) — updating..."
   aws cloudformation update-stack \
     --stack-name "$STACK_NAME" \
-    --template-body file://"$SCRIPT_DIR/clawdbot-bedrock-agentcore-multitenancy.yaml" \
+    --template-url "$CFN_TEMPLATE_URL" \
     --capabilities CAPABILITY_NAMED_IAM \
     --region "$REGION" \
     --parameters $CFN_PARAMS 2>/dev/null && \
@@ -396,23 +404,18 @@ else
 
   # Define tiers: name:model:guardrailId
   # desiredCount=0 for all — admin activates via Security Center
-  declare -A TIER_MODELS=(
-    [standard]="${MODEL:-global.amazon.nova-2-lite-v1:0}"
-    [restricted]="us.deepseek.r1-v1:0"
-    [engineering]="global.anthropic.claude-sonnet-4-5-20250929-v1:0"
-    [executive]="global.anthropic.claude-sonnet-4-6"
-  )
-  declare -A TIER_GUARDRAILS=(
-    [standard]="${GUARDRAIL_MODERATE_ID:-}"
-    [restricted]="${GUARDRAIL_STRICT_ID:-}"
-    [engineering]=""
-    [executive]=""
-  )
+  # Using case statements instead of associative arrays for bash 3.x (macOS) compatibility
+  _GUARDRAIL_MODERATE="${GUARDRAIL_MODERATE_ID:-}"
+  _GUARDRAIL_STRICT="${GUARDRAIL_STRICT_ID:-}"
 
   for TIER_NAME in standard restricted engineering executive; do
     SERVICE_NAME="${STACK_NAME}-tier-${TIER_NAME}"
-    TIER_MODEL="${TIER_MODELS[$TIER_NAME]}"
-    TIER_GUARDRAIL="${TIER_GUARDRAILS[$TIER_NAME]}"
+    case "$TIER_NAME" in
+      standard)    TIER_MODEL="${MODEL:-global.amazon.nova-2-lite-v1:0}"; TIER_GUARDRAIL="$_GUARDRAIL_MODERATE" ;;
+      restricted)  TIER_MODEL="us.deepseek.r1-v1:0"; TIER_GUARDRAIL="$_GUARDRAIL_STRICT" ;;
+      engineering) TIER_MODEL="global.anthropic.claude-sonnet-4-5-20250929-v1:0"; TIER_GUARDRAIL="" ;;
+      executive)   TIER_MODEL="global.anthropic.claude-sonnet-4-6"; TIER_GUARDRAIL="" ;;
+    esac
 
     # Register tier-specific task definition with tier env vars
     TIER_FAMILY="${STACK_NAME}-tier-${TIER_NAME}"
@@ -670,6 +673,8 @@ ECS_TASK_SG=${ECS_TASK_SG}
 ECS_SUBNET=${ECS_SUBNET}
 EFS_ID=${EFS_ID}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
+AZURE_TENANT_ID=${AZURE_TENANT_ID:-}
+AZURE_CLIENT_ID=${AZURE_CLIENT_ID:-}
 ENVEOF
 aws s3 cp "$ENV_TMPFILE" "s3://${S3_BUCKET}/_deploy/env" --region "$REGION" --quiet
 rm -f "$ENV_TMPFILE"
