@@ -228,6 +228,22 @@ def handle_api(method, path, body=None):
     if p == "org/departments": return 200, DEPARTMENTS
     if p == "org/positions": return 200, POSITIONS
     if p == "org/employees": return 200, EMPLOYEES
+    if p.startswith("org/employees/") and method == "DELETE":
+        eid = p.split("/")[2].split("?")[0]
+        force = "force=true" in path.lower()
+        emp = next((e for e in EMPLOYEES if e["id"] == eid), None)
+        if not emp:
+            return 404, {"detail": "Employee not found"}
+        # Check for active bindings
+        emp_bindings = [b for b in BINDINGS if b.get("employeeId") == eid]
+        if emp_bindings and not force:
+            return 409, {
+                "error": "employee_has_bindings",
+                "message": f"Cannot delete {emp['name']}: has {len(emp_bindings)} active agent binding(s). Unbind agents first or use force delete.",
+                "agentBindings": len(emp_bindings),
+                "imMappings": len(emp.get("channels", []))
+            }
+        return 200, {"ok": True, "agentBindings": 0, "imMappings": 0}
     if p == "org/employees/activity": return 200, [{"employeeId":e["id"],"messagesThisWeek":e["messagesThisWeek"],"channelStatus":{c:"connected" for c in e["channels"]}} for e in EMPLOYEES]
 
     # Agents
@@ -346,6 +362,13 @@ class DemoHandler(SimpleHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length else {}
             status, data = handle_api("PUT", self.path, body)
+            self._json_response(status, data)
+        else:
+            self._json_response(404, {"detail": "Not found"})
+
+    def do_DELETE(self):
+        if self.path.startswith("/api/"):
+            status, data = handle_api("DELETE", self.path)
             self._json_response(status, data)
         else:
             self._json_response(404, {"detail": "Not found"})
